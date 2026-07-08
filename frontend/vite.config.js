@@ -1,0 +1,23 @@
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  plugins: [vue()],
+  server: {
+    host: '0.0.0.0', // 允许通过局域网/公网 IP 访问
+    port: 5173,
+    watch: {
+      usePolling: true // 解决 Docker 挂载卷在某些宿主机下热更新失效的问题
+    },
+    proxy: {
+      '/api': {
+        target: 'http://api:8000',
+        changeOrigin: true
+      },
+      '/static': {
+        target: 'http://api:8000',
+        changeOrigin: true
+      }
+    }
+  }
+})
