@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { showToast, showSuccessToast, showConfirmDialog, showDialog, showLoadingToast, closeToast } from 'vant'
-import axios from 'axios'
+import request from '../api/request.js'
 
 const activeTab = ref(0)
 
@@ -57,7 +57,7 @@ const onRoleSelect = (action) => {
 // ========== 数据看板 ==========
 const fetchDashboard = async () => {
   try {
-    const res = await axios.get('/api/v1/admin/dashboard')
+    const res = await request.get('/api/v1/admin/dashboard')
     dashboard.value = res.data
   } catch (e) {
     console.error('获取看板数据失败', e)
@@ -75,7 +75,7 @@ const fetchApplications = async (status) => {
   appLoading.value = true
   try {
     const url = status ? `/api/v1/admin/applications?status=${status}` : '/api/v1/admin/applications'
-    const res = await axios.get(url)
+    const res = await request.get(url)
     applications.value = res.data
   } catch (e) {
     showToast('获取申请列表失败')
@@ -91,7 +91,7 @@ const handleAppReview = async (app, action) => {
     message: `${label}「${app.real_name}」的入驻申请？`,
   }).then(async () => {
     try {
-      await axios.post('/api/v1/admin/applications/review', {
+      await request.post('/api/v1/admin/applications/review', {
         application_id: app.id,
         status: action,
         remark: action === 'approved' ? '审核通过，欢迎加入' : '请完善资料后重新申请',
@@ -112,7 +112,7 @@ const fetchOrders = async () => {
     let url = `/api/v1/admin/orders?page=${orderPage.value}&page_size=20`
     if (orderStatusFilter.value) url += `&status=${orderStatusFilter.value}`
     if (orderSearch.value) url += `&search=${encodeURIComponent(orderSearch.value)}`
-    const res = await axios.get(url)
+    const res = await request.get(url)
     orders.value = res.data.orders
     orderTotal.value = res.data.total
   } catch (e) {
@@ -124,7 +124,7 @@ const fetchOrders = async () => {
 
 const viewOrderDetail = async (orderNo) => {
   try {
-    const res = await axios.get(`/api/v1/admin/orders/${orderNo}`)
+    const res = await request.get(`/api/v1/admin/orders/${orderNo}`)
     orderDetail.value = res.data
     showOrderDetail.value = true
   } catch (e) {
@@ -148,7 +148,7 @@ const fetchWithdrawals = async () => {
   try {
     let url = `/api/v1/admin/withdrawals?page=${withdrawPage.value}&page_size=20`
     if (withdrawStatusFilter.value) url += `&status=${withdrawStatusFilter.value}`
-    const res = await axios.get(url)
+    const res = await request.get(url)
     withdrawals.value = res.data.withdrawals
     withdrawTotal.value = res.data.total
   } catch (e) {
@@ -171,7 +171,7 @@ const handleWithdrawReview = async (w, action) => {
     message: `${label}「${w.username}」的 ¥${w.amount} 提现申请？`,
   }).then(async () => {
     try {
-      await axios.post('/api/v1/admin/withdrawals/review', {
+      await request.post('/api/v1/admin/withdrawals/review', {
         request_id: w.id,
         status: action,
         remark: action === 'approved' ? '已转账' : '资料不完整',
@@ -188,7 +188,7 @@ const handleWithdrawReview = async (w, action) => {
 // ========== 分佣配置 ==========
 const fetchCommissionConfig = async () => {
   try {
-    const res = await axios.get('/api/v1/admin/commission-config')
+    const res = await request.get('/api/v1/admin/commission-config')
     commissionConfig.value = res.data
   } catch (e) {
     console.error('获取分佣配置失败', e)
@@ -230,7 +230,7 @@ const fetchUsers = async () => {
     let url = `/api/v1/admin/users?page=${userPage.value}&page_size=50`
     if (userSearch.value) url += `&search=${encodeURIComponent(userSearch.value)}`
     if (userRoleFilter.value) url += `&role=${userRoleFilter.value}`
-    const res = await axios.get(url)
+    const res = await request.get(url)
     userList.value = res.data.users
     userTotal.value = res.data.total
   } catch (e) {

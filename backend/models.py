@@ -7,12 +7,19 @@ from datetime import datetime
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True)
-    role = Column(String(20), default="user")          # user / promoter / creator
+    username = Column(String(50), unique=True, nullable=False)
+    password_hash = Column(String(256), nullable=True)       # bcrypt hash
+    role = Column(String(20), default="user")                # user / promoter / creator / admin
     wallet_balance = Column(Float, default=0.0)
     # 三级分销树
-    parent_id = Column(Integer, ForeignKey("users.id"), nullable=True)   # 上级ID
-    team_size = Column(Integer, default=0)             # 团队成员数（不含自己）
+    parent_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    team_size = Column(Integer, default=0)
+    # 提现账户
+    alipay_account = Column(String(100), nullable=True)
+    wechat_account = Column(String(100), nullable=True)
+    total_withdrawn = Column(Float, default=0.0)
+    frozen_commission = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.now)
     # 关系
     children = relationship("User", backref="parent", remote_side=[id])
 

@@ -13,6 +13,10 @@ from datetime import datetime, timedelta
 from database import engine, Base, get_db, SessionLocal
 import models
 import payjs
+from auth import (
+    hash_password, verify_password, create_token,
+    get_current_user, require_admin,
+)
 
 ASSETS_DIR = os.getenv("ASSETS_DIR", "/root/assets")
 app = FastAPI(title="Resume Platform API", version="1.0.0")
@@ -34,6 +38,15 @@ class PayReq(BaseModel):
 
 class TakeOrderReq(BaseModel):
     order_no: str
+
+class AuthLoginReq(BaseModel):
+    username: str
+    password: str
+
+class AuthRegisterReq(BaseModel):
+    username: str
+    password: str
+    ref_code: Optional[str] = None
 
 class RegisterReq(BaseModel):
     username: str
@@ -124,11 +137,13 @@ def startup_event():
         ])
 
     if db.query(models.User).count() == 0:
-        db.add(models.User(id=1, username="高校合伙人_王老师", role="promoter", wallet_balance=158.50))
-        db.add(models.User(id=2, username="校园大使_李同学", role="promoter", wallet_balance=50.00, parent_id=1))
-        db.add(models.User(id=3, username="推广员_张同学", role="promoter", wallet_balance=20.00, parent_id=2))
-        db.add(models.User(id=4, username="简历制作者_赵老师", role="creator", wallet_balance=0.00))
-        db.add(models.User(id=5, username="待审核制作者", role="user", wallet_balance=0.00))
+        default_pwd = hash_password("admin123")
+        db.add(models.User(id=1, username="高校合伙人_王老师", role="promoter", wallet_balance=158.50, password_hash=default_pwd))
+        db.add(models.User(id=2, username="校园大使_李同学", role="promoter", wallet_balance=50.00, parent_id=1, password_hash=default_pwd))
+        db.add(models.User(id=3, username="推广员_张同学", role="promoter", wallet_balance=20.00, parent_id=2, password_hash=default_pwd))
+        db.add(models.User(id=4, username="简历制作者_赵老师", role="creator", wallet_balance=0.00, password_hash=default_pwd))
+        db.add(models.User(id=5, username="待审核制作者", role="user", wallet_balance=0.00, password_hash=default_pwd))
+        db.add(models.User(id=6, username="admin", role="admin", wallet_balance=0.00, password_hash=hash_password("admin123")))
         db.commit()
         for u in [1, 2]:
             u_ = db.query(models.User).filter(models.User.id == u).first()
@@ -176,8 +191,70 @@ async def get_templates(skip: int = 0, limit: int = 50, category: str = None, db
 
 # ================= 用户注册（含分销邀请） =================
 
+@app.post("/api/v1/auth/register")
+async def auth_register(req: AuthRegisterReq, db: Session = Depends(get_db)):
+    """用户注册（带密码）"""
+    if db.query(models.User).filter(models.User.username == req.username).first():
+        raise HTTPException(status_code=400, detail="用户名已存在")
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少6位")
+
+    parent_id = None
+    if req.ref_code:
+        try:
+            ref_user_id = int(req.ref_code.replace("INVITE_", ""))
+            parent = db.query(models.User).filter(models.User.id == ref_user_id).first()
+            if parent: parent_id = parent.id
+        except (ValueError, AttributeError): pass
+
+    new_user = models.User(
+        username=req.username, role="user", parent_id=parent_id,
+        password_hash=hash_password(req.password),
+    )
+    db.add(new_user)
+    db.flush()
+
+    if parent_id:
+        current = parent_id
+        for _ in range(3):
+            u = db.query(models.User).filter(models.User.id == current).first()
+            if u:
+                u.team_size = db.query(models.User).filter(models.User.parent_id == current).count()
+                current = u.parent_id
+            else: break
+
+    db.commit()
+    token = create_token(new_user.id, new_user.username, new_user.role)
+    return {
+        "token": token,
+        "user": {"id": new_user.id, "username": new_user.username, "role": new_user.role},
+    }
+
+
+@app.post("/api/v1/auth/login")
+async def auth_login(req: AuthLoginReq, db: Session = Depends(get_db)):
+    """用户登录"""
+    user = db.query(models.User).filter(models.User.username == req.username).first()
+    if not user or not user.password_hash or not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    token = create_token(user.id, user.username, user.role)
+    return {
+        "token": token,
+        "user": {"id": user.id, "username": user.username, "role": user.role},
+    }
+
+
+@app.get("/api/v1/auth/me")
+async def auth_me(current_user: dict = Depends(get_current_user)):
+    """获取当前用户信息"""
+    return current_user
+
+
+# ================= 用户注册（兼容旧版，无密码） =================
+
 @app.post("/api/v1/user/register")
 async def register(req: RegisterReq, db: Session = Depends(get_db)):
+    """兼容旧版注册（无密码，仅用于测试）"""
     if db.query(models.User).filter(models.User.username == req.username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
 
@@ -356,7 +433,7 @@ async def get_application_status(user_id: int, db: Session = Depends(get_db)):
 # ================= 管理员审核 API =================
 
 @app.get("/api/v1/admin/applications")
-async def list_applications(status: Optional[str] = None, db: Session = Depends(get_db)):
+async def list_applications(status: Optional[str] = None, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """管理员查看入驻申请列表"""
     query = db.query(models.CreatorApplication, models.User).join(models.User)
     if status: query = query.filter(models.CreatorApplication.status == status)
@@ -373,7 +450,7 @@ async def list_applications(status: Optional[str] = None, db: Session = Depends(
     } for a, u in results]
 
 @app.post("/api/v1/admin/applications/review")
-async def review_application(req: ReviewApplyReq, db: Session = Depends(get_db)):
+async def review_application(req: ReviewApplyReq, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """管理员审核入驻申请"""
     if req.status not in ("approved", "rejected"):
         raise HTTPException(status_code=400, detail="状态必须是 approved 或 rejected")
@@ -403,6 +480,7 @@ async def admin_orders(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
+    admin_user: dict = Depends(require_admin),
 ):
     """管理员订单列表"""
     query = db.query(models.Order, models.Template, models.User).outerjoin(
@@ -444,7 +522,7 @@ async def admin_orders(
     }
 
 @app.get("/api/v1/admin/orders/{order_no}")
-async def admin_order_detail(order_no: str, db: Session = Depends(get_db)):
+async def admin_order_detail(order_no: str, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """订单详情"""
     order = db.query(models.Order).filter(models.Order.order_no == order_no).first()
     if not order: raise HTTPException(status_code=404, detail="订单不存在")
@@ -485,6 +563,7 @@ async def admin_withdrawals(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
+    admin_user: dict = Depends(require_admin),
 ):
     """提现列表"""
     query = db.query(models.WithdrawRequest, models.User).join(models.User)
@@ -511,7 +590,7 @@ async def admin_withdrawals(
     }
 
 @app.post("/api/v1/admin/withdrawals/review")
-async def review_withdraw(req: ReviewWithdrawReq, db: Session = Depends(get_db)):
+async def review_withdraw(req: ReviewWithdrawReq, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """审核提现"""
     if req.status not in ("approved", "rejected"):
         raise HTTPException(status_code=400, detail="状态必须是 approved 或 rejected")
@@ -536,7 +615,7 @@ async def review_withdraw(req: ReviewWithdrawReq, db: Session = Depends(get_db))
 # ================= 管理员：分佣配置 =================
 
 @app.get("/api/v1/admin/commission-config")
-async def get_commission_config(db: Session = Depends(get_db)):
+async def get_commission_config(db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """获取当前分佣比例"""
     configs = db.query(models.CommissionConfig).order_by(models.CommissionConfig.level).all()
     return {
@@ -546,7 +625,7 @@ async def get_commission_config(db: Session = Depends(get_db)):
     }
 
 @app.put("/api/v1/admin/commission-config")
-async def update_commission_config(req: UpdateCommissionConfigReq, db: Session = Depends(get_db)):
+async def update_commission_config(req: UpdateCommissionConfigReq, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """修改分佣比例"""
     if req.level not in (1, 2, 3):
         raise HTTPException(status_code=400, detail="级别必须是 1/2/3")
@@ -574,6 +653,7 @@ async def admin_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
+    admin_user: dict = Depends(require_admin),
 ):
     """用户列表"""
     query = db.query(models.User)
@@ -596,7 +676,7 @@ async def admin_users(
     }
 
 @app.put("/api/v1/admin/users/{user_id}")
-async def admin_update_user(user_id: int, req: UpdateUserReq, db: Session = Depends(get_db)):
+async def admin_update_user(user_id: int, req: UpdateUserReq, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """修改用户角色/调整余额"""
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user: raise HTTPException(status_code=404, detail="用户不存在")
@@ -613,7 +693,7 @@ async def admin_update_user(user_id: int, req: UpdateUserReq, db: Session = Depe
 # ================= 管理员：数据看板 =================
 
 @app.get("/api/v1/admin/dashboard")
-async def admin_dashboard(db: Session = Depends(get_db)):
+async def admin_dashboard(db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """数据看板"""
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -697,7 +777,7 @@ async def admin_dashboard(db: Session = Depends(get_db)):
 # ================= 管理员统计（兼容旧版） =================
 
 @app.get("/api/v1/admin/stats")
-async def admin_stats(db: Session = Depends(get_db)):
+async def admin_stats(db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     """管理后台数据概览（兼容旧版）"""
     pending_count = db.query(models.CreatorApplication).filter(models.CreatorApplication.status == "pending").count()
     approved_count = db.query(models.CreatorApplication).filter(models.CreatorApplication.status == "approved").count()
