@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import ResumeList from './components/ResumeList.vue'
 import CrowdHall from './components/CrowdHall.vue'
+import CreatorCenter from './components/CreatorCenter.vue'
+import AdminPanel from './components/AdminPanel.vue'
 import UserCenter from './components/UserCenter.vue'
 
 const activeTab = ref(0)
@@ -14,12 +16,16 @@ const activeTab = ref(0)
     <main class="main-content">
       <ResumeList v-if="activeTab === 0" />
       <CrowdHall v-else-if="activeTab === 1" />
-      <UserCenter v-else-if="activeTab === 2" />
+      <CreatorCenter v-else-if="activeTab === 2" />
+      <AdminPanel v-else-if="activeTab === 3" />
+      <UserCenter v-else-if="activeTab === 4" />
     </main>
 
     <van-tabbar v-model="activeTab" safe-area-inset-bottom>
       <van-tabbar-item icon="home-o">模板商城</van-tabbar-item>
       <van-tabbar-item icon="friends-o">众包大厅</van-tabbar-item>
+      <van-tabbar-item icon="gem-o">制作者中心</van-tabbar-item>
+      <van-tabbar-item icon="manager-o">管理后台</van-tabbar-item>
       <van-tabbar-item icon="user-o">我的</van-tabbar-item>
     </van-tabbar>
   </van-config-provider>
