@@ -11,24 +11,31 @@ from database import engine, Base, get_db, SessionLocal
 import models
 
 ASSETS_DIR = "/app/assets/ResumeCollection"
-app = FastAPI(title="Resume Platform API", version="0.4.1")
+app = FastAPI(title="Resume Platform API", version="0.6.1")
 
-# --- 请求体模型 ---
 class CreateOrderReq(BaseModel):
     template_id: int
-    # 核心修复：使用 Optional 明确允许 null 值
     ref_user_id: Optional[int] = None
+    order_type: str = "download"
+    custom_requirements: Optional[str] = None
 
 class MockPayReq(BaseModel):
     order_no: str
+    
+class TakeOrderReq(BaseModel):
+    order_no: str
 
-# --- 启动事件 (初始化与扫描) ---
 @app.on_event("startup")
 def startup_event():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
-    existing_count = db.query(models.Template).count()
-    if existing_count == 0 and os.path.exists(ASSETS_DIR):
+    
+    if db.query(models.User).count() == 0:
+        db.add(models.User(id=1, username="大学辅导员_张老师", role="promoter", wallet_balance=158.50))
+        db.add(models.User(id=2, username="简历达人_李四", role="creator", wallet_balance=0.0))
+        db.commit()
+
+    if db.query(models.Template).count() == 0 and os.path.exists(ASSETS_DIR):
         print("开始扫描模板仓库...")
         templates_to_add = []
         for root, dirs, files in os.walk(ASSETS_DIR):
@@ -36,9 +43,9 @@ def startup_event():
             docs = [f for f in files if f.lower().endswith(('.doc', '.docx'))]
             if images and docs:
                 rel_root = os.path.relpath(root, ASSETS_DIR)
-                category = rel_root.split(os.sep)[0] if os.sep in rel_root else "其他"
+                cat = rel_root.split(os.sep)[0] if os.sep in rel_root else "其他"
                 templates_to_add.append(models.Template(
-                    category=category, name=os.path.basename(root),
+                    category=cat, name=os.path.basename(root),
                     jpg_path=os.path.join(rel_root, images[0]),
                     doc_path=os.path.join(rel_root, docs[0])
                 ))
@@ -60,57 +67,86 @@ async def get_templates(skip: int = 0, limit: int = 50, category: str = None, db
     if category: query = query.filter(models.Template.category == category)
     return query.offset(skip).limit(limit).all()
 
-# ================= 核心交易链路 =================
+# ================= 订单与交易 =================
 
 @app.post("/api/v1/orders")
 async def create_order(req: CreateOrderReq, db: Session = Depends(get_db)):
-    """1. 创建订单"""
     template = db.query(models.Template).filter(models.Template.id == req.template_id).first()
-    if not template:
-        raise HTTPException(status_code=404, detail="模板不存在")
+    if not template: raise HTTPException(status_code=404, detail="模板不存在")
     
+    amount = 9.99 if req.order_type == "custom_service" else template.price
     order_no = f"ORD-{uuid.uuid4().hex[:8].upper()}"
-    new_order = models.Order(
-        order_no=order_no,
-        template_id=template.id,
-        amount=template.price,
-        status="pending",
-        ref_user_id=req.ref_user_id,
-        order_type="download"
-    )
-    db.add(new_order)
+    
+    db.add(models.Order(
+        order_no=order_no, template_id=template.id, amount=amount, 
+        ref_user_id=req.ref_user_id, order_type=req.order_type,
+        custom_requirements=req.custom_requirements
+    ))
     db.commit()
-    return {"order_no": order_no, "amount": template.price}
+    return {"order_no": order_no, "amount": amount, "type": req.order_type}
 
 @app.post("/api/v1/payments/mock-callback")
 async def mock_payment_callback(req: MockPayReq, db: Session = Depends(get_db)):
-    """2. 模拟支付网关异步回调"""
     order = db.query(models.Order).filter(models.Order.order_no == req.order_no).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="订单不存在")
-    if order.status == "paid":
-        return {"status": "already_paid"}
+    if not order or order.status != "pending": return {"status": "error"}
     
     order.status = "paid"
-    
     if order.ref_user_id:
         promoter = db.query(models.User).filter(models.User.id == order.ref_user_id).first()
-        if promoter:
-            promoter.wallet_balance += (order.amount * 0.20)
-            
+        if promoter: promoter.wallet_balance += (order.amount * 0.20)
     db.commit()
-    return {"status": "success", "msg": "模拟支付成功，发货权限已释放"}
+    return {"status": "success"}
 
 @app.get("/api/v1/orders/download/{order_no}")
 async def download_by_order(order_no: str, db: Session = Depends(get_db)):
-    """3. 凭已支付订单号提取文件"""
     order = db.query(models.Order).filter(models.Order.order_no == order_no).first()
-    if not order or order.status != "paid":
-        raise HTTPException(status_code=403, detail="未找到该订单或订单未支付")
+    # 核心修复：允许在已付款、制作中、已完成状态下都可以提取底稿文件
+    if not order or order.status not in ["paid", "processing", "completed"]: 
+        raise HTTPException(status_code=403, detail="未支付或无权下载")
         
     template = db.query(models.Template).filter(models.Template.id == order.template_id).first()
     full_path = os.path.abspath(os.path.join(ASSETS_DIR, template.doc_path))
-    if not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail="文件物理丢失")
+    return FileResponse(full_path, media_type='application/msword', filename=f"{template.name}.doc")
+
+# ================= 众包大厅接口 =================
+
+@app.get("/api/v1/creator/orders")
+async def get_creator_orders(tab: str = "pending", db: Session = Depends(get_db)):
+    query = db.query(models.Order, models.Template).join(models.Template).filter(models.Order.order_type == "custom_service")
+    if tab == "pending":
+        results = query.filter(models.Order.status == "paid", models.Order.creator_id == None).all()
+    else:
+        results = query.filter(models.Order.creator_id == 2).all()
         
-    return FileResponse(full_path, media_type='application/msword', filename=f"{template.name}_{os.path.basename(full_path)}")
+    res_list = []
+    for o, t in results:
+        res_list.append({
+            "order_no": o.order_no, "amount": o.amount, "status": o.status,
+            "requirements": o.custom_requirements, "created_at": o.created_at,
+            "template_name": f"{t.category}-{t.name}"
+        })
+    return res_list
+
+@app.post("/api/v1/creator/take")
+async def take_order(req: TakeOrderReq, db: Session = Depends(get_db)):
+    order = db.query(models.Order).filter(models.Order.order_no == req.order_no, models.Order.status == "paid", models.Order.creator_id == None).first()
+    if not order: raise HTTPException(status_code=400, detail="订单已被抢走或状态错误")
+    order.creator_id = 2
+    order.status = "processing"
+    db.commit()
+    return {"status": "success"}
+
+@app.post("/api/v1/creator/deliver")
+async def deliver_order(req: TakeOrderReq, db: Session = Depends(get_db)):
+    order = db.query(models.Order).filter(models.Order.order_no == req.order_no, models.Order.creator_id == 2, models.Order.status == "processing").first()
+    if not order: raise HTTPException(status_code=400, detail="订单异常")
+    order.status = "completed"
+    creator = db.query(models.User).filter(models.User.id == 2).first()
+    creator.wallet_balance += (order.amount * 0.30)
+    db.commit()
+    return {"status": "success"}
+
+@app.get("/api/v1/user/profile")
+async def get_user_profile(db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.id == 2).first()
+    return {"id": user.id, "username": user.username, "role": user.role, "wallet_balance": round(user.wallet_balance, 2)}
