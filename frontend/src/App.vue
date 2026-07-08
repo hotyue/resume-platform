@@ -1,6 +1,8 @@
 <script setup>
 import { ref } from 'vue'
 import ResumeList from './components/ResumeList.vue'
+import CrowdHall from './components/CrowdHall.vue'
+import UserCenter from './components/UserCenter.vue'
 
 const activeTab = ref(0)
 </script>
@@ -11,12 +13,11 @@ const activeTab = ref(0)
 
     <main class="main-content">
       <ResumeList v-if="activeTab === 0" />
-      <div v-else class="placeholder-view">
-        <p>众包代做大厅 (开发中...)</p>
-      </div>
+      <CrowdHall v-else-if="activeTab === 1" />
+      <UserCenter v-else-if="activeTab === 2" />
     </main>
 
-    <van-tabbar v-model="activeTab" safe-area-inset-bottom route>
+    <van-tabbar v-model="activeTab" safe-area-inset-bottom>
       <van-tabbar-item icon="home-o">模板商城</van-tabbar-item>
       <van-tabbar-item icon="friends-o">众包大厅</van-tabbar-item>
       <van-tabbar-item icon="user-o">我的</van-tabbar-item>
@@ -27,16 +28,11 @@ const activeTab = ref(0)
 <style>
 body {
   margin: 0;
-  background-color: #f7f8fa; /* Vant 默认灰背景 */
-  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Segoe UI, Arial, Roboto, 'PingFang SC', 'miui', 'Hiragino Sans GB', 'Microsoft Yahei', sans-serif;
+  background-color: #f7f8fa; 
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Segoe UI, Arial, Roboto, sans-serif;
 }
 .main-content {
-  padding-bottom: 50px; /* 留出底部 Tab 栏的空间 */
+  padding-bottom: 50px; 
   min-height: calc(100vh - 46px - 50px);
-}
-.placeholder-view {
-  text-align: center;
-  padding: 50px 20px;
-  color: #969799;
 }
 </style>
