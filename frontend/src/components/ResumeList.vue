@@ -40,6 +40,7 @@ const categories = [
   { key: '5.简单表格简历', label: '表格简历' },
 ]
 const activeCategory = ref('')
+const searchKeyword = ref('')
 
 // ================= 懒加载 (IntersectionObserver) =================
 let observer = null
@@ -92,6 +93,7 @@ const loadTemplates = async (category = '', append = false) => {
       page_size: String(PAGE_SIZE),
     })
     if (category) params.set('category', category)
+    if (searchKeyword.value) params.set('search', searchKeyword.value)
 
     const res = await request.get(`/templates?${params.toString()}`)
     // 后端返回 {total, page, page_size, templates: [...]}
@@ -122,7 +124,17 @@ const loadMore = () => {
 
 const switchCategory = (key) => {
   activeCategory.value = key
+  searchKeyword.value = ''
   loadTemplates(key)
+}
+
+const doSearch = () => {
+  if (!auth.isLoggedIn) {
+    showToast('请先登录后搜索')
+    router.push('/login')
+    return
+  }
+  loadTemplates(activeCategory.value)
 }
 
 const getImageUrl = (relPath) => `/static/${encodeURI(relPath.replace(/\\/g, '/'))}`
@@ -277,6 +289,11 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- 搜索栏 -->
+    <div class="search-bar">
+      <van-search v-model="searchKeyword" placeholder="搜索模板名称" shape="round" @search="doSearch" />
+    </div>
+
     <van-pull-refresh v-model="refreshing" @refresh="loadTemplates(activeCategory)">
       <!-- 模板列表 -->
       <van-grid :column-num="2" :gutter="10">
@@ -382,6 +399,11 @@ onBeforeUnmount(() => {
 .category-tag.active {
   background: #1989fa;
   color: #fff;
+}
+
+/* 搜索栏 */
+.search-bar {
+  margin-bottom: 12px;
 }
 
 /* 模板卡片 */
