@@ -406,10 +406,18 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
+/* 覆盖 van-grid-item 默认样式 */
+.van-grid-item {
+  padding: 5px !important;
+}
+
 /* 模板卡片 */
 .template-card {
   position: relative;
   width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   background: #fff;
   border-radius: 8px;
   overflow: hidden;
@@ -423,6 +431,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   position: relative;
   background: #f2f3f5;
+  flex-shrink: 0;
 }
 
 /* 骨架屏占位（覆盖在图片上） */
@@ -452,9 +461,7 @@ onBeforeUnmount(() => {
   object-fit: cover;
   opacity: 0;
   transition: opacity 0.3s;
-  position: absolute;
-  inset: 0;
-  z-index: 2;
+  display: block;
 }
 
 .cover-img.loaded {
