@@ -295,32 +295,30 @@ onBeforeUnmount(() => {
     </div>
 
     <van-pull-refresh v-model="refreshing" @refresh="loadTemplates(activeCategory)">
-      <!-- 模板列表 -->
-      <van-grid :column-num="2" :gutter="10">
-        <van-grid-item v-for="item in templates" :key="item.id">
-          <div class="template-card">
-            <div class="image-wrapper">
-              <!-- 懒加载图片（先渲染） -->
-              <img
-                :data-src="getImageUrl(item.jpg_path)"
-                class="cover-img"
-                alt=""
-                loading="lazy"
-                @load="$event.target.classList.add('loaded')"
-              />
-              <!-- 骨架屏占位（覆盖在图片上） -->
-              <div class="skeleton-placeholder"></div>
-            </div>
-            <div class="info">
-              <div class="title van-ellipsis">{{ item.name }}</div>
-              <div class="action-bar">
-                <button class="btn-action" @click="handleBuy(item, 'download')">下载模板</button>
-                <button class="btn-action btn-custom" @click="handleBuy(item, 'custom_service')">找人代做</button>
-              </div>
+      <!-- 模板列表（CSS Grid 自适应多栏） -->
+      <div class="template-grid">
+        <div class="template-card" v-for="item in templates" :key="item.id">
+          <div class="image-wrapper">
+            <!-- 懒加载图片（先渲染） -->
+            <img
+              :data-src="getImageUrl(item.jpg_path)"
+              class="cover-img"
+              alt=""
+              loading="lazy"
+              @load="$event.target.classList.add('loaded')"
+            />
+            <!-- 骨架屏占位（覆盖在图片上） -->
+            <div class="skeleton-placeholder"></div>
+          </div>
+          <div class="info">
+            <div class="title van-ellipsis">{{ item.name }}</div>
+            <div class="action-bar">
+              <button class="btn-action" @click="handleBuy(item, 'download')">下载模板</button>
+              <button class="btn-action btn-custom" @click="handleBuy(item, 'custom_service')">找人代做</button>
             </div>
           </div>
-        </van-grid-item>
-      </van-grid>
+        </div>
+      </div>
 
       <!-- 加载更多提示 -->
       <div v-if="loadingMore" class="load-more">
@@ -406,20 +404,15 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
-/* 覆盖 van-grid-item 默认样式 */
-:deep(.van-grid-item) {
-  padding: 5px 5px !important;
-}
-:deep(.van-grid-item__content) {
-  padding: 0 !important;
-  background: transparent !important;
+/* CSS Grid 自适应多栏布局 */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
 }
 
 /* 模板卡片 */
 .template-card {
-  position: relative;
-  width: 100%;
-  height: 100%;
   display: flex;
   flex-direction: column;
   background: #fff;
