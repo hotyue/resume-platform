@@ -1,7 +1,12 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
+import request from '../api/request.js'
 import { showToast, showSuccessToast, showDialog, showLoadingToast, closeToast } from 'vant'
-import axios from 'axios'
+
+const router = useRouter()
+const auth = useAuthStore()
 
 const activeTab = ref(0)
 const userInfo = ref(null)
@@ -17,9 +22,149 @@ const showWithdraw = ref(false)
 const withdrawAmount = ref('')
 const paymentInfo = ref('')
 
+// =========== 充值 ===========
+const showRecharge = ref(false)
+const rechargeAmount = ref('')
+const rechargeMethod = ref('wechat')
+const rechargeLoading = ref(false)
+const qrCodeData = ref('')
+
+const handleRecharge = async () => {
+  if (!rechargeAmount.value || parseFloat(rechargeAmount.value) <= 0) {
+    return showToast('请输入有效的充值金额')
+  }
+  rechargeLoading.value = true
+  try {
+    const res = await request.post('/user/recharge', {
+      amount: parseFloat(rechargeAmount.value),
+      method: rechargeMethod.value,
+    })
+    showSuccessToast(`充值成功！金额: ¥${res.data.amount}`)
+    showRecharge.value = false
+    rechargeAmount.value = ''
+    qrCodeData.value = ''
+    await fetchUserInfo()
+  } catch (e) {
+    showToast(e.response?.data?.detail || '充值失败')
+  } finally {
+    rechargeLoading.value = false
+  }
+}
+
+// =========== 退款 ===========
+const showRefund = ref(false)
+const refundReason = ref('')
+const refunding = ref(false)
+const currentRefundOrder = ref(null)
+
+const openRefund = (order) => {
+  currentRefundOrder.value = order
+  refundReason.value = ''
+  showRefund.value = true
+}
+
+const submitRefund = async () => {
+  if (!refundReason.value.trim()) {
+    return showToast('请填写退款原因')
+  }
+  refunding.value = true
+  try {
+    const res = await request.post('/orders/refund', {
+      order_no: currentRefundOrder.value.order_no,
+      reason: refundReason.value,
+    })
+    showSuccessToast('退款申请已提交，等待管理员审核')
+    showRefund.value = false
+    refundReason.value = ''
+    currentRefundOrder.value = null
+    await fetchCustomOrders()
+    await fetchUserInfo()
+  } catch (e) {
+    showToast(e.response?.data?.detail || '退款申请失败')
+  } finally {
+    refunding.value = false
+  }
+}
+
+// =========== 定制订单 ===========
+const customOrders = ref([])
+const customLoading = ref(false)
+const reviewForm = ref({ order_no: '', result: 'accepted', buyer_remark: '' })
+const showReviewDialog = ref(false)
+const reviewing = ref(false)
+
+const fetchCustomOrders = async () => {
+  customLoading.value = true
+  try {
+    const res = await request.get('/orders/my')
+    customOrders.value = res.data
+  } catch (e) {
+    showToast('获取定制订单失败')
+  } finally {
+    customLoading.value = false
+  }
+}
+
+const openReview = (order) => {
+  reviewForm.value = { order_no: order.order_no, result: 'accepted', buyer_remark: '' }
+  showReviewDialog.value = true
+}
+
+const submitReview = async () => {
+  reviewing.value = true
+  try {
+    await request.post('/orders/review', reviewForm.value)
+    showSuccessToast(reviewForm.value.result === 'accepted' ? '验收通过' : '已退回重做')
+    showReviewDialog.value = false
+    await fetchCustomOrders()
+  } catch (e) {
+    showToast(e.response?.data?.detail || '操作失败')
+  } finally {
+    reviewing.value = false
+  }
+}
+
+const orderStatusLabel = (s) => {
+  const map = {
+    awaiting_claim: '待抢单',
+    in_progress: '制作中',
+    delivered: '待验收',
+    accepted: '已验收',
+    rejected: '已退回',
+    completed: '已完成',
+    paid: '已支付',
+    cancelled: '已取消',
+  }
+  return map[s] || s
+}
+
+const orderStatusType = (s) => {
+  const map = {
+    awaiting_claim: 'primary',
+    in_progress: 'warning',
+    delivered: 'success',
+    accepted: 'success',
+    rejected: 'danger',
+    completed: 'success',
+    paid: 'primary',
+    cancelled: 'default',
+  }
+  return map[s] || 'default'
+}
+
+const handleLogout = () => {
+  showDialog({
+    title: '退出登录',
+    message: '确定要退出当前账号吗？',
+  }).then(() => {
+    auth.logout()
+    router.push('/login')
+  }).catch(() => {})
+}
+
 const fetchUserInfo = async () => {
   try {
-    const res = await axios.get('/api/v1/user/profile')
+    const res = await request.get('/user/me')
     userInfo.value = res.data
   } catch (error) {
     showToast('获取用户信息失败')
@@ -31,7 +176,7 @@ const fetchUserInfo = async () => {
 const fetchTeam = async () => {
   teamLoading.value = true
   try {
-    const res = await axios.get('/api/v1/user/team')
+    const res = await request.get('/user/team')
     teamData.value = res.data
   } catch (e) {
     showToast('获取团队信息失败')
@@ -43,7 +188,7 @@ const fetchTeam = async () => {
 const fetchCommissionHistory = async () => {
   commissionLoading.value = true
   try {
-    const res = await axios.get('/api/v1/user/commission-history')
+    const res = await request.get('/user/commission-history')
     commissionList.value = res.data
   } catch (e) {
     showToast('获取佣金记录失败')
@@ -55,8 +200,9 @@ const fetchCommissionHistory = async () => {
 const fetchStats = async () => {
   statsLoading.value = true
   try {
-    const id = userInfo.value?.id || 2
-    const res = await axios.get(`/api/v1/user/stats/${id}`)
+    const id = auth.userId
+    if (!id) return
+    const res = await request.get(`/user/stats/${id}`)
     stats.value = res.data
   } catch (e) {
     // ignore
@@ -69,6 +215,7 @@ const onTabChange = (index) => {
   activeTab.value = index
   if (index === 1 && !teamData.value) fetchTeam()
   if (index === 2 && commissionList.value.length === 0) fetchCommissionHistory()
+  if (index === 3 && customOrders.value.length === 0) fetchCustomOrders()
 }
 
 const copyInviteLink = () => {
@@ -81,6 +228,35 @@ const copyInviteCode = () => {
   if (!userInfo.value?.invite_code) return showToast('暂无邀请码')
   navigator.clipboard.writeText(userInfo.value.invite_code)
   showSuccessToast('邀请码已复制')
+}
+
+const submitWithdraw = async () => {
+  if (!withdrawAmount.value || parseFloat(withdrawAmount.value) <= 0) {
+    return showToast('请输入有效的提现金额')
+  }
+  if (parseFloat(withdrawAmount.value) < 50) {
+    return showToast('最低提现金额为50元')
+  }
+  if (!paymentInfo.value) {
+    return showToast('请输入收款账号')
+  }
+  try {
+    showLoadingToast({ message: '提交中...', forbidClick: true })
+    await request.post('/user/withdraw', {
+      amount: parseFloat(withdrawAmount.value),
+      payment_info: paymentInfo.value,
+    })
+    closeToast()
+    showSuccessToast('提现申请已提交，请等待管理员审核')
+    showWithdraw.value = false
+    withdrawAmount.value = ''
+    paymentInfo.value = ''
+    // 刷新用户信息
+    await fetchUserInfo()
+  } catch (e) {
+    closeToast()
+    showToast(e.response?.data?.detail || '提现申请提交失败')
+  }
 }
 
 const teamCount = computed(() => {
@@ -115,12 +291,12 @@ onMounted(() => {
         </div>
         <div class="stats-row">
           <div class="stat-item">
-            <div class="stat-val">{{ userInfo.team_size || 0 }}</div>
-            <div class="stat-lbl">团队人数</div>
+            <div class="stat-val">¥{{ (userInfo.wallet_balance || 0).toFixed(2) }}</div>
+            <div class="stat-lbl">账户余额</div>
           </div>
-          <div class="stat-item">
-            <div class="stat-val">¥{{ userInfo.wallet_balance?.toFixed(2) }}</div>
-            <div class="stat-lbl">可提现佣金</div>
+          <div class="stat-item" v-if="userInfo.deposit_frozen > 0">
+            <div class="stat-val">¥{{ userInfo.deposit_frozen.toFixed(2) }}</div>
+            <div class="stat-lbl">保证金</div>
           </div>
           <div class="stat-item">
             <div class="stat-val">¥{{ stats?.total_commission?.toFixed(2) || '0.00' }}</div>
@@ -128,12 +304,15 @@ onMounted(() => {
           </div>
         </div>
         <div class="balance-actions">
+          <van-button size="small" type="warning" round @click="showRecharge = true">
+            💰 充值
+          </van-button>
           <van-button size="small" type="primary" round @click="showWithdraw = true"
             :disabled="(userInfo.wallet_balance || 0) < 50">
-            立即提现
+            提现
           </van-button>
           <van-button size="small" round plain @click="copyInviteLink">
-            复制邀请链接
+            邀请
           </van-button>
         </div>
         <div class="tips" v-if="(userInfo.wallet_balance || 0) < 50">满50元可提现</div>
@@ -248,8 +427,48 @@ onMounted(() => {
             </div>
           </div>
         </van-tab>
+        <van-tab title="我的定制订单">
+          <div v-if="customLoading" class="loading">加载订单中...</div>
+          <div v-else-if="customOrders.length === 0" class="empty-hint">暂无定制订单</div>
+          <div v-else class="order-list">
+            <div v-for="o in customOrders" :key="o.order_no" class="custom-order-card">
+              <div class="co-header">
+                <van-tag :type="orderStatusType(o.status)" round size="small">{{ orderStatusLabel(o.status) }}</van-tag>
+                <span class="co-no">{{ o.order_no }}</span>
+              </div>
+              <div class="co-body">
+                <p><strong>{{ o.template_name }}</strong></p>
+                <p class="co-req">{{ o.custom_requirements || '暂无需求描述' }}</p>
+                <p class="co-amount">¥{{ o.amount.toFixed(2) }}</p>
+                <p v-if="o.status === 'delivered'" class="co-frozen">⏳ 等待验收（7天自动通过）</p>
+              </div>
+              <div class="co-footer">
+                <div class="co-actions-row" v-if="o.status === 'delivered'">
+                  <van-button size="small" round block type="primary" @click="openReview(o)">验收订单</van-button>
+                  <van-button size="small" round block plain type="danger" @click="openRefund(o)">申请退款</van-button>
+                </div>
+                <van-button v-if="o.status === 'in_progress'" size="small" round block plain type="danger" @click="openRefund(o)">申请退款</van-button>
+                <van-button v-if="o.status === 'accepted'" size="small" round block plain type="success">已验收通过</van-button>
+                <van-button v-if="o.status === 'rejected'" size="small" round block plain type="warning">已退回重做</van-button>
+                <van-button v-if="o.status === 'refund_requested'" size="small" round block plain type="default">退款审核中</van-button>
+              </div>
+            </div>
+          </div>
+        </van-tab>
       </van-tabs>
     </div>
+
+    <!-- 充值弹窗 -->
+    <van-dialog v-model:show="showRecharge" title="账户充值" show-cancel-button @confirm="handleRecharge" :before-confirm="handleRecharge">
+      <div class="recharge-form">
+        <van-field v-model="rechargeAmount" type="digit" label="充值金额" placeholder="请输入充值金额" />
+        <van-radio-group v-model="rechargeMethod" direction="horizontal" class="recharge-methods">
+          <van-radio name="wechat">微信支付</van-radio>
+          <van-radio name="alipay">支付宝</van-radio>
+        </van-radio-group>
+        <p class="form-tips">充值后即时到账，可用于保证金和下单</p>
+      </div>
+    </van-dialog>
 
     <!-- 提现弹窗 -->
     <van-dialog v-model:show="showWithdraw" title="佣金提现申请" show-cancel-button @confirm="submitWithdraw">
@@ -259,6 +478,35 @@ onMounted(() => {
         <p class="form-tips">注：管理员将在48小时内人工审核并转账</p>
       </div>
     </van-dialog>
+
+    <!-- 验收弹窗 -->
+    <van-dialog v-model:show="showReviewDialog" :show-cancel-button="true" @confirm="submitReview" :before-close="() => true" :close-on-click-overlay="false">
+      <div class="review-form">
+        <van-radio-group v-model="reviewForm.result" direction="horizontal">
+          <van-radio name="accepted" icon-size="20px">✅ 验收通过</van-radio>
+          <van-radio name="rejected" icon-size="20px">❌ 退回重做</van-radio>
+        </van-radio-group>
+        <van-field v-model="reviewForm.buyer_remark" rows="2" autosize type="textarea" placeholder="验收备注（可选）" />
+      </div>
+    </van-dialog>
+
+    <!-- 退款弹窗 -->
+    <van-dialog v-model:show="showRefund" title="申请退款" show-cancel-button confirm-button-text="提交申请" @confirm="submitRefund" :before-close="() => true" :close-on-click-overlay="false">
+      <div class="refund-form">
+        <div class="refund-info" v-if="currentRefundOrder">
+          <p>订单号：{{ currentRefundOrder.order_no }}</p>
+          <p>订单金额：¥{{ currentRefundOrder.amount?.toFixed(2) }}</p>
+          <p class="refund-note">⚠️ 退款金额：¥{{ (currentRefundOrder.amount / 2)?.toFixed(2) }}（平台与创作者各承担50%）</p>
+        </div>
+        <van-field v-model="refundReason" rows="3" autosize type="textarea" label="退款原因" placeholder="请详细说明退款原因" />
+        <p class="form-tips">退款申请提交后需管理员审核，仅可退款一次</p>
+      </div>
+    </van-dialog>
+
+    <!-- 退出登录 -->
+    <div class="logout-section">
+      <van-button type="danger" block round plain hairline @click="handleLogout">退出登录</van-button>
+    </div>
   </div>
 </template>
 
@@ -325,4 +573,36 @@ onMounted(() => {
 /* 提现 */
 .withdraw-form { padding: 15px 0; }
 .form-tips { font-size: 12px; color: #999; text-align: center; margin-top: 10px; }
+
+/* 充值 */
+.recharge-form { padding: 15px 0; }
+.recharge-methods { margin: 12px 0; }
+.recharge-methods .van-radio { margin-right: 15px; }
+
+/* 退款 */
+.refund-form { padding: 15px 0; }
+.refund-info { background: #fff7cc; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 13px; }
+.refund-info p { margin: 4px 0; }
+.refund-note { color: #ee0a24; font-weight: bold; }
+
+/* 定制订单 */
+.co-actions-row { display: flex; gap: 8px; margin-bottom: 8px; }
+
+.logout-section { padding: 20px 15px 30px; }
+
+/* 定制订单 */
+.custom-order-card { background: white; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+.co-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.co-no { font-size: 11px; color: #999; }
+.co-body p { margin: 4px 0; font-size: 13px; }
+.co-req { color: #666; font-size: 12px; line-height: 1.4; }
+.co-amount { color: #ee0a24; font-weight: bold; font-size: 15px; }
+.co-frozen { font-size: 11px; color: #ff976a; margin-top: 6px; padding: 4px 8px; background: #fffbe6; border-radius: 4px; text-align: center; }
+.co-footer { margin-top: 10px; }
+
+/* 验收弹窗 */
+.review-form { padding: 15px 10px; }
+.review-form .van-radio-group { margin-bottom: 12px; }
+.review-form .van-radio { margin-right: 15px; }
+.review-form .van-field { margin-top: 10px; }
 </style>
