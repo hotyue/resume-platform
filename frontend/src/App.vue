@@ -95,4 +95,9 @@ body {
   text-decoration: none;
   padding: 0 4px;
 }
+
+/* 底部 tabbar 固定在底部，z-index 高于所有模板卡片 */
+.van-tabbar {
+  z-index: 9999 !important;
+}
 </style>

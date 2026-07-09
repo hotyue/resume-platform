@@ -387,11 +387,12 @@ onBeforeUnmount(() => {
 
 /* 模板卡片 */
 .template-card {
-  width: 100%;
+  position: relative;
+  background: #fff;
   border-radius: 8px;
   overflow: hidden;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: transform 0.2s;
 }
 
 .image-wrapper {
