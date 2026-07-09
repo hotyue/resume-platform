@@ -297,10 +297,9 @@ onBeforeUnmount(() => {
             <div class="info">
               <div class="title van-ellipsis">{{ item.name }}</div>
               <div class="action-bar">
-                <span class="price">¥{{ Number(item.price).toFixed(2) }}</span>
-                <button class="btn-download" @click="handleBuy(item, 'download')">下载</button>
+                <button class="btn-action" @click="handleBuy(item, 'download')">下载模板</button>
+                <button class="btn-action btn-custom" @click="handleBuy(item, 'custom_service')">找人代做</button>
               </div>
-              <button class="btn-custom" @click="handleBuy(item, 'custom_service')">代做 (¥19.99)</button>
             </div>
           </div>
         </van-grid-item>
@@ -442,12 +441,12 @@ onBeforeUnmount(() => {
 
 .info { padding: 10px; }
 .title { font-size: 13px; color: #323233; margin-bottom: 8px; font-weight: 500; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.action-bar { display: flex; justify-content: space-between; align-items: center; }
-.price { color: #ee0a24; font-size: 16px; font-weight: bold; }
+.action-bar { display: flex; justify-content: center; align-items: center; gap: 8px; }
 
 /* 原生按钮样式（替代 van-button 解决事件拦截问题） */
-.btn-download {
-  padding: 4px 12px;
+.btn-action {
+  flex: 1;
+  padding: 6px 12px;
   font-size: 12px;
   border: 1px solid #1989fa;
   border-radius: 4px;
@@ -455,26 +454,18 @@ onBeforeUnmount(() => {
   color: #1989fa;
   cursor: pointer;
   line-height: 1.4;
+  text-align: center;
   transition: all 0.2s;
 }
-.btn-download:active {
+.btn-action:active {
   background: #1989fa;
   color: #fff;
 }
-.btn-custom {
-  width: 100%;
-  padding: 6px 12px;
-  margin-top: 5px;
-  font-size: 12px;
-  border: 1px solid #ff976a;
-  border-radius: 4px;
-  background: #fff;
+.btn-action.btn-custom {
+  border-color: #ff976a;
   color: #ff976a;
-  cursor: pointer;
-  line-height: 1.4;
-  transition: all 0.2s;
 }
-.btn-custom:active {
+.btn-action.btn-custom:active {
   background: #ff976a;
   color: #fff;
 }
