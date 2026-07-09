@@ -740,7 +740,7 @@ onMounted(() => {
         <div class="detail-row"><span class="detail-label">状态</span><van-tag :type="statusType(orderDetail.order.status)" round>{{ statusLabel(orderDetail.order.status) }}</van-tag></div>
         <div class="detail-row"><span class="detail-label">金额</span><span class="order-amount">¥{{ orderDetail.order.amount?.toFixed(2) }}</span></div>
         <div class="detail-row"><span class="detail-label">类型</span><span>{{ orderDetail.order.order_type === 'custom_service' ? '定制服务' : '模板下载' }}</span></div>
-        <div v-if="orderDetail.order.template" class="detail-row"><span class="detail-label">模板</span><span>{{ orderDetail.order.template.category }}-{{ orderDetail.order.template.name }}</span></div>
+        <div v-if="orderDetail.order.template" class="detail-row"><span class="detail-label">模板</span><span>{{ orderDetail.order.template.name }}</span></div>
         <div v-if="orderDetail.order.user" class="detail-row"><span class="detail-label">用户</span><span>{{ orderDetail.order.user.username }} ({{ orderDetail.order.user.role }})</span></div>
         <div v-if="orderDetail.order.creator" class="detail-row"><span class="detail-label">制作者</span><span>{{ orderDetail.order.creator.username }}</span></div>
         <div v-if="orderDetail.order.ref_user" class="detail-row"><span class="detail-label">推广员</span><span>{{ orderDetail.order.ref_user.username }}</span></div>

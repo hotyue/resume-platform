@@ -295,7 +295,7 @@ onBeforeUnmount(() => {
               <div class="skeleton-placeholder"></div>
             </div>
             <div class="info">
-              <div class="title van-ellipsis">{{ item.category }}-{{ item.name }}</div>
+              <div class="title van-ellipsis">{{ item.name }}</div>
               <div class="action-bar">
                 <span class="price">¥{{ Number(item.price).toFixed(2) }}</span>
                 <button class="btn-download" @click="handleBuy(item, 'download')">下载</button>
@@ -441,7 +441,7 @@ onBeforeUnmount(() => {
 }
 
 .info { padding: 10px; }
-.title { font-size: 13px; color: #323233; margin-bottom: 8px; font-weight: 500; }
+.title { font-size: 13px; color: #323233; margin-bottom: 8px; font-weight: 500; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .action-bar { display: flex; justify-content: space-between; align-items: center; }
 .price { color: #ee0a24; font-size: 16px; font-weight: bold; }
 
