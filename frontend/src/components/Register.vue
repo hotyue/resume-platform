@@ -1,14 +1,19 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import { showToast, showLoadingToast, closeToast } from 'vant'
 import request from '../api/request.js'
 
-const emit = defineEmits(['register-success'])
+const router = useRouter()
+const auth = useAuthStore()
 
 const username = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const inviteCode = ref('')
+
+const validatePasswordMatch = (value) => value === password.value
 
 const doRegister = async () => {
   if (!username.value || !password.value) {
@@ -34,11 +39,10 @@ const doRegister = async () => {
     }
     const res = await request.post('/auth/register', payload)
     closeToast()
-    const { token, user } = res.data
-    localStorage.setItem('token', token)
-    localStorage.setItem('user', JSON.stringify(user))
+    const { access_token: token, user } = res.data
+    auth.setAuth(token, user)
     showToast('注册成功')
-    emit('register-success', user)
+    router.push('/')
   } catch (e) {
     closeToast()
     showToast(e.response?.data?.detail || '注册失败')
@@ -78,7 +82,7 @@ const doRegister = async () => {
           placeholder="再次输入密码"
           :rules="[
             { required: true, message: '请确认密码' },
-            { validator: (v) => v === password.value, message: '两次密码不一致' },
+            { validator: validatePasswordMatch, message: '两次密码不一致' },
           ]"
         />
         <van-field
@@ -96,7 +100,7 @@ const doRegister = async () => {
     </van-form>
 
     <div class="auth-footer">
-      已有账号？<a href="#" @click.prevent="$emit('register-success', null)">返回登录</a>
+      已有账号？<router-link to="/login">返回登录</router-link>
     </div>
   </div>
 </template>

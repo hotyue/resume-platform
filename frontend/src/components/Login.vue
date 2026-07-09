@@ -1,9 +1,12 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import { showToast, showLoadingToast, closeToast } from 'vant'
 import request from '../api/request.js'
 
-const emit = defineEmits(['login-success'])
+const router = useRouter()
+const auth = useAuthStore()
 
 const username = ref('')
 const password = ref('')
@@ -20,11 +23,10 @@ const doLogin = async () => {
       password: password.value,
     })
     closeToast()
-    const { token, user } = res.data
-    localStorage.setItem('token', token)
-    localStorage.setItem('user', JSON.stringify(user))
+    const { access_token: token, user } = res.data
+    auth.setAuth(token, user)
     showToast('登录成功')
-    emit('login-success', user)
+    router.push('/')
   } catch (e) {
     closeToast()
     showToast(e.response?.data?.detail || '登录失败')
@@ -65,10 +67,6 @@ const doLogin = async () => {
 
     <div class="auth-footer">
       还没有账号？<router-link to="/register">立即注册</router-link>
-    </div>
-
-    <div class="demo-hint">
-      <p>演示账号：admin / admin123</p>
     </div>
   </div>
 </template>

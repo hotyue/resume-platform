@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -8,8 +7,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import get_db
+from config import settings
 
-SECRET_KEY = os.environ.get("JWT_SECRET", "resume-platform-dev-secret-change-in-prod")
+SECRET_KEY = settings.JWT_SECRET
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
 
@@ -68,4 +68,10 @@ def get_current_user(
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     if current_user.get("role") not in ("admin", "creator"):
         raise HTTPException(status_code=403, detail="需要管理员权限")
+    return current_user
+
+
+def require_creator(current_user: dict = Depends(get_current_user)) -> dict:
+    if current_user.get("role") not in ("creator", "admin"):
+        raise HTTPException(status_code=403, detail="需要制作者权限")
     return current_user

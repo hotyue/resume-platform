@@ -8,7 +8,6 @@ PayJS 支付集成模块
   PAYJS_NOTIFY_URL : 支付回调地址（生产环境需为公网可访问 URL）
 """
 
-import os
 import hashlib
 import logging
 from urllib.parse import urlencode
@@ -17,10 +16,11 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# PayJS 配置（从环境变量读取）
-PAYJS_MCHID = os.getenv("PAYJS_MCHID", "")
-PAYJS_KEY = os.getenv("PAYJS_KEY", "")
-PAYJS_NOTIFY_URL = os.getenv("PAYJS_NOTIFY_URL", "")
+from config import settings
+
+PAYJS_MCHID = settings.PAYJS_MCHID
+PAYJS_KEY = settings.PAYJS_KEY
+PAYJS_NOTIFY_URL = settings.PAYJS_NOTIFY_URL
 
 # API 地址
 PAYJS_API_NATIVE = "https://payjs.cn/api/native"

@@ -47,6 +47,56 @@ const editingUser = ref(null)
 const editUserRole = ref('')
 const editUserBalance = ref('')
 
+// ========== 退款审核 ==========
+const refunds = ref([])
+const refundStatusFilter = ref('pending')
+const refundLoading = ref(false)
+
+const fetchRefunds = async () => {
+  refundLoading.value = true
+  try {
+    let url = `/admin/refunds`
+    if (refundStatusFilter.value) url += `?status=${refundStatusFilter.value}`
+    const res = await request.get(url)
+    refunds.value = res.data
+  } catch (e) {
+    showToast('获取退款列表失败')
+  } finally {
+    refundLoading.value = false
+  }
+}
+
+const handleRefundReview = async (r, action) => {
+  const label = action === 'approved' ? '通过' : '拒绝'
+  showConfirmDialog({
+    title: `确认${label}`,
+    message: `${label}「${r.order_no}」的 ¥${r.refund_amount} 退款申请？`,
+  }).then(async () => {
+    try {
+      await request.post('/admin/refunds/review', {
+        request_id: r.id,
+        status: action,
+        admin_remark: action === 'approved' ? '审核通过' : '不符合退款条件',
+      })
+      showSuccessToast(`${label}成功`)
+      await fetchRefunds()
+      await fetchDashboard()
+    } catch (e) {
+      showToast(e.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+const refundStatusLabel = (s) => {
+  const map = { pending: '待审核', approved: '已通过', rejected: '已拒绝' }
+  return map[s] || s
+}
+
+const refundStatusType = (s) => {
+  const map = { pending: 'warning', approved: 'success', rejected: 'danger' }
+  return map[s] || 'default'
+}
+
 // ========== 角色选择器 ==========
 const showRolePicker = ref(false)
 const onRoleSelect = (action) => {
@@ -57,7 +107,7 @@ const onRoleSelect = (action) => {
 // ========== 数据看板 ==========
 const fetchDashboard = async () => {
   try {
-    const res = await request.get('/api/v1/admin/dashboard')
+    const res = await request.get('/admin/dashboard')
     dashboard.value = res.data
   } catch (e) {
     console.error('获取看板数据失败', e)
@@ -74,7 +124,7 @@ const appTabs = [
 const fetchApplications = async (status) => {
   appLoading.value = true
   try {
-    const url = status ? `/api/v1/admin/applications?status=${status}` : '/api/v1/admin/applications'
+    const url = status ? `/admin/applications?status=${status}` : '/admin/applications'
     const res = await request.get(url)
     applications.value = res.data
   } catch (e) {
@@ -91,7 +141,7 @@ const handleAppReview = async (app, action) => {
     message: `${label}「${app.real_name}」的入驻申请？`,
   }).then(async () => {
     try {
-      await request.post('/api/v1/admin/applications/review', {
+      await request.post('/admin/applications/review', {
         application_id: app.id,
         status: action,
         remark: action === 'approved' ? '审核通过，欢迎加入' : '请完善资料后重新申请',
@@ -109,7 +159,7 @@ const handleAppReview = async (app, action) => {
 const fetchOrders = async () => {
   orderLoading.value = true
   try {
-    let url = `/api/v1/admin/orders?page=${orderPage.value}&page_size=20`
+    let url = `/admin/orders?page=${orderPage.value}&page_size=20`
     if (orderStatusFilter.value) url += `&status=${orderStatusFilter.value}`
     if (orderSearch.value) url += `&search=${encodeURIComponent(orderSearch.value)}`
     const res = await request.get(url)
@@ -124,7 +174,7 @@ const fetchOrders = async () => {
 
 const viewOrderDetail = async (orderNo) => {
   try {
-    const res = await request.get(`/api/v1/admin/orders/${orderNo}`)
+    const res = await request.get(`/admin/orders/${orderNo}`)
     orderDetail.value = res.data
     showOrderDetail.value = true
   } catch (e) {
@@ -146,7 +196,7 @@ const statusType = (s) => {
 const fetchWithdrawals = async () => {
   withdrawLoading.value = true
   try {
-    let url = `/api/v1/admin/withdrawals?page=${withdrawPage.value}&page_size=20`
+    let url = `/admin/withdrawals?page=${withdrawPage.value}&page_size=20`
     if (withdrawStatusFilter.value) url += `&status=${withdrawStatusFilter.value}`
     const res = await request.get(url)
     withdrawals.value = res.data.withdrawals
@@ -171,7 +221,7 @@ const handleWithdrawReview = async (w, action) => {
     message: `${label}「${w.username}」的 ¥${w.amount} 提现申请？`,
   }).then(async () => {
     try {
-      await request.post('/api/v1/admin/withdrawals/review', {
+      await request.post('/admin/withdrawals/review', {
         request_id: w.id,
         status: action,
         remark: action === 'approved' ? '已转账' : '资料不完整',
@@ -185,49 +235,93 @@ const handleWithdrawReview = async (w, action) => {
   }).catch(() => {})
 }
 
-// ========== 分佣配置 ==========
-const fetchCommissionConfig = async () => {
+// ========== 系统配置 ==========
+const systemConfig = ref({
+  download_price: 1.99,
+  custom_price: 19.99,
+  creator_rate: 30,
+  level1_rate: 15,
+  level2_rate: 8,
+  level3_rate: 5,
+  deposit_amount: 20,
+})
+const showConfigDialog = ref(false)
+const editingConfig = ref(null)
+const newConfigValue = ref('')
+
+const fetchSystemConfig = async () => {
   try {
-    const res = await request.get('/api/v1/admin/commission-config')
-    commissionConfig.value = res.data
+    const res = await request.get('/admin/config')
+    const configs = res.data
+    configs.forEach(c => {
+      systemConfig.value[c.key] = parseFloat(c.value)
+    })
   } catch (e) {
-    console.error('获取分佣配置失败', e)
+    console.error('获取系统配置失败', e)
   }
 }
 
-const startEditRate = (level) => {
-  const key = `level_${level}_rate`
-  editingLevel.value = level
-  newRate.value = (commissionConfig.value[key] * 100).toFixed(0)
+const startEditConfig = (key) => {
+  editingConfig.value = key
+  newConfigValue.value = systemConfig.value[key]?.toString() || '0'
+  showConfigDialog.value = true
 }
 
-const cancelEditRate = () => {
-  editingLevel.value = null
-  newRate.value = ''
+const cancelEditConfig = () => {
+  editingConfig.value = null
+  newConfigValue.value = ''
+  showConfigDialog.value = false
 }
 
-const saveRate = async (level) => {
-  const rate = parseFloat(newRate.value) / 100
-  if (isNaN(rate) || rate < 0 || rate > 1) {
-    showToast('请输入有效的比例（0-100）')
+const saveConfig = async (key) => {
+  const val = parseFloat(newConfigValue.value)
+  if (isNaN(val) || val < 0) {
+    showToast('请输入有效数值')
     return
   }
   try {
-    await axios.put('/api/v1/admin/commission-config', { level, rate })
-    showSuccessToast(`第${level}级分佣比例已更新为 ${newRate.value}%`)
-    editingLevel.value = null
-    newRate.value = ''
-    await fetchCommissionConfig()
+    await request.put('/admin/config', { key, value: val })
+    showSuccessToast('配置已更新')
+    systemConfig.value[key] = val
+    editingConfig.value = null
+    newConfigValue.value = ''
+    showConfigDialog.value = false
   } catch (e) {
     showToast(e.response?.data?.detail || '更新失败')
   }
+}
+
+const configLabel = (key) => {
+  const map = {
+    download_price: '下载价格（元）',
+    custom_price: '定制价格（元）',
+    creator_rate: '制作者分佣（%）',
+    level1_rate: '一级推广分佣（%）',
+    level2_rate: '二级推广分佣（%）',
+    level3_rate: '三级推广分佣（%）',
+    deposit_amount: '保证金金额（元）',
+  }
+  return map[key] || key
+}
+
+const configPlaceholder = (key) => {
+  const map = {
+    download_price: '如 1.99',
+    custom_price: '如 19.99',
+    creator_rate: '如 30',
+    level1_rate: '如 15',
+    level2_rate: '如 8',
+    level3_rate: '如 5',
+    deposit_amount: '如 20',
+  }
+  return map[key] || ''
 }
 
 // ========== 用户管理 ==========
 const fetchUsers = async () => {
   userLoading.value = true
   try {
-    let url = `/api/v1/admin/users?page=${userPage.value}&page_size=50`
+    let url = `/admin/users?page=${userPage.value}&page_size=50`
     if (userSearch.value) url += `&search=${encodeURIComponent(userSearch.value)}`
     if (userRoleFilter.value) url += `&role=${userRoleFilter.value}`
     const res = await request.get(url)
@@ -251,7 +345,7 @@ const saveUserEdit = async () => {
   try {
     const payload = { role: editUserRole.value }
     if (editUserBalance.value !== undefined) payload.wallet_balance = parseFloat(editUserBalance.value)
-    await axios.put(`/api/v1/admin/users/${editingUser.value.id}`, payload)
+    await request.put(`/admin/users/${editingUser.value.id}`, payload)
     showSuccessToast('用户信息已更新')
     showUserEdit.value = false
     await fetchUsers()
@@ -294,8 +388,9 @@ onMounted(() => {
   fetchApplications('pending')
   fetchOrders()
   fetchWithdrawals()
-  fetchCommissionConfig()
+  fetchSystemConfig()
   fetchUsers()
+  fetchRefunds()
 })
 </script>
 
@@ -513,23 +608,83 @@ onMounted(() => {
         </div>
       </van-tab>
 
-      <!-- Tab 4: 系统设置 -->
-      <van-tab title="⚙️ 系统设置">
-        <!-- 分佣比例 -->
-        <div class="settings-section">
-          <div class="settings-title">分佣比例配置</div>
-          <div class="rate-card" v-for="level in [1, 2, 3]" :key="level">
-            <div class="rate-label">第 {{ level }} 级分佣</div>
-            <div v-if="editingLevel !== level" class="rate-value" @click="startEditRate(level)">
-              {{ (commissionConfig[`level_${level}_rate`] * 100).toFixed(0) }}% <van-icon name="edit" />
+      <!-- Tab 4: 退款审核 -->
+      <van-tab title="🔄 退款审核">
+        <div class="status-chips" style="margin-bottom:12px">
+          <van-tag v-for="s in [{key:'pending',label:'待审核'},{key:'approved',label:'已通过'},{key:'rejected',label:'已拒绝'}]" :key="s.key"
+            :type="refundStatusFilter === s.key ? 'primary' : 'default'"
+            plain size="medium" style="margin:4px" @click="refundStatusFilter = s.key; fetchRefunds()">
+            {{ s.label }}
+          </van-tag>
+        </div>
+        <div v-if="refundLoading" class="loading">加载中...</div>
+        <div v-else-if="refunds.length === 0" class="empty">暂无退款记录</div>
+        <div v-else class="refund-list">
+          <div v-for="r in refunds" :key="r.id" class="refund-card">
+            <div class="refund-header">
+              <span class="refund-order">{{ r.order_no }}</span>
+              <van-tag :type="refundStatusType(r.status)" round size="small">{{ refundStatusLabel(r.status) }}</van-tag>
             </div>
-            <div v-else class="rate-edit">
-              <van-field v-model="newRate" type="number" placeholder="百分比" style="width:100px" />
-              <van-button type="primary" size="small" round @click="saveRate(level)">保存</van-button>
-              <van-button size="small" round plain @click="cancelEditRate">取消</van-button>
+            <div class="refund-amount">退款: ¥{{ r.refund_amount?.toFixed(2) }}</div>
+            <div class="refund-info">用户: {{ r.username }}</div>
+            <div class="refund-reason">原因: {{ r.reason }}</div>
+            <div v-if="r.admin_remark" class="refund-remark">备注: {{ r.admin_remark }}</div>
+            <div class="refund-time">{{ r.created_at }}</div>
+            <div v-if="r.status === 'pending'" class="refund-actions">
+              <van-button type="success" size="small" round @click="handleRefundReview(r, 'approved')">通过</van-button>
+              <van-button type="danger" size="small" round plain @click="handleRefundReview(r, 'rejected')">拒绝</van-button>
             </div>
           </div>
         </div>
+      </van-tab>
+
+      <!-- Tab 5: 系统设置 -->
+      <van-tab title="⚙️ 系统设置">
+        <!-- 金额配置 -->
+        <div class="settings-section">
+          <div class="settings-title">金额配置</div>
+          <div class="rate-card" @click="startEditConfig('download_price')">
+            <div class="rate-label">下载价格</div>
+            <div class="rate-value">¥{{ systemConfig.download_price?.toFixed(2) }} <van-icon name="edit" /></div>
+          </div>
+          <div class="rate-card" @click="startEditConfig('custom_price')">
+            <div class="rate-label">定制价格</div>
+            <div class="rate-value">¥{{ systemConfig.custom_price?.toFixed(2) }} <van-icon name="edit" /></div>
+          </div>
+          <div class="rate-card" @click="startEditConfig('deposit_amount')">
+            <div class="rate-label">保证金金额</div>
+            <div class="rate-value">¥{{ systemConfig.deposit_amount?.toFixed(2) }} <van-icon name="edit" /></div>
+          </div>
+        </div>
+
+        <!-- 分佣比例 -->
+        <div class="settings-section">
+          <div class="settings-title">分佣比例配置</div>
+          <div class="rate-card" @click="startEditConfig('creator_rate')">
+            <div class="rate-label">制作者分佣</div>
+            <div class="rate-value">{{ systemConfig.creator_rate?.toFixed(0) }}% <van-icon name="edit" /></div>
+          </div>
+          <div class="rate-card" @click="startEditConfig('level1_rate')">
+            <div class="rate-label">一级推广分佣</div>
+            <div class="rate-value">{{ systemConfig.level1_rate?.toFixed(0) }}% <van-icon name="edit" /></div>
+          </div>
+          <div class="rate-card" @click="startEditConfig('level2_rate')">
+            <div class="rate-label">二级推广分佣</div>
+            <div class="rate-value">{{ systemConfig.level2_rate?.toFixed(0) }}% <van-icon name="edit" /></div>
+          </div>
+          <div class="rate-card" @click="startEditConfig('level3_rate')">
+            <div class="rate-label">三级推广分佣</div>
+            <div class="rate-value">{{ systemConfig.level3_rate?.toFixed(0) }}% <van-icon name="edit" /></div>
+          </div>
+        </div>
+
+        <!-- 编辑弹窗 -->
+        <van-dialog v-model:show="showConfigDialog" :title="'编辑配置'" show-cancel-button cancel-text="取消" confirm-text="保存" @confirm="editingConfig && saveConfig(editingConfig)" @cancel="cancelEditConfig()">
+          <div class="config-edit-form" v-if="editingConfig">
+            <div class="config-edit-label">{{ configLabel(editingConfig) }}</div>
+            <van-field v-model="newConfigValue" type="digit" :placeholder="configPlaceholder(editingConfig)" />
+          </div>
+        </van-dialog>
 
         <!-- 用户管理 -->
         <div class="settings-section">
@@ -684,6 +839,18 @@ onMounted(() => {
 .withdraw-time { font-size: 11px; color: #ccc; margin-top: 6px; }
 .withdraw-actions { display: flex; gap: 10px; margin-top: 12px; justify-content: flex-end; }
 
+/* ========== 退款审核 ========== */
+.refund-list { padding: 5px 0; }
+.refund-card { background: white; border-radius: 10px; padding: 15px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.refund-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.refund-order { font-weight: bold; font-size: 14px; font-family: monospace; }
+.refund-amount { font-size: 18px; font-weight: bold; color: #ee0a24; margin-bottom: 6px; }
+.refund-info { font-size: 13px; color: #666; margin-bottom: 4px; }
+.refund-reason { font-size: 12px; color: #666; margin-top: 4px; padding: 6px 8px; background: #f7f8fa; border-radius: 4px; }
+.refund-remark { font-size: 12px; color: #999; font-style: italic; margin-top: 4px; }
+.refund-time { font-size: 11px; color: #ccc; margin-top: 6px; }
+.refund-actions { display: flex; gap: 10px; margin-top: 12px; justify-content: flex-end; }
+
 /* ========== 系统设置 ========== */
 .settings-section { margin-bottom: 20px; }
 .settings-title { font-size: 15px; font-weight: bold; color: #333; margin-bottom: 12px; padding-left: 8px; border-left: 3px solid #1989fa; }
@@ -715,4 +882,8 @@ onMounted(() => {
 .edit-user-form { padding: 15px 0; }
 .edit-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; color: #666; }
 .edit-label { color: #999; }
+
+/* 配置编辑弹窗 */
+.config-edit-form { padding: 15px 0; }
+.config-edit-label { font-size: 14px; font-weight: bold; color: #333; margin-bottom: 10px; }
 </style>

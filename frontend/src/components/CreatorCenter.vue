@@ -1,7 +1,12 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { showToast, showSuccessToast, showConfirmDialog } from 'vant'
-import axios from 'axios'
+import { showToast, showSuccessToast, showConfirmDialog, showDialog } from 'vant'
+import request from '../api/request.js'
+import { useAuthStore } from '../stores/auth'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+const auth = useAuthStore()
 
 const activeTab = ref(0)
 
@@ -10,6 +15,7 @@ const hasApplied = ref(false)
 const appStatus = ref(null)
 const application = ref(null)
 const loadingApp = ref(true)
+const walletInfo = ref({})
 
 // 申请表单
 const showApplyForm = ref(false)
@@ -21,25 +27,56 @@ const orderTab = ref('pending')
 const orders = ref([])
 const loadingOrders = ref(false)
 
-// 当前演示用户的 ID（实际项目接入登录后替换）
-const CURRENT_USER_ID = 4  // 简历制作者_赵老师
+// 当前用户 ID（从 auth store 获取）
+const currentUserId = computed(() => auth.userId)
 
 // =========== 申请状态 ===========
 
 const fetchApplicationStatus = async () => {
+  if (!currentUserId.value) return
   loadingApp.value = true
   try {
-    const res = await axios.get(`/api/v1/creator/application-status/${CURRENT_USER_ID}`)
-    hasApplied.value = res.data.has_applied
-    if (res.data.has_applied) {
-      application.value = res.data
-      appStatus.value = res.data.status
+    const res = await request.get('/creator/application')
+    const data = res.data
+    if (data) {
+      hasApplied.value = true
+      application.value = data
+      appStatus.value = data.status
+    } else {
+      hasApplied.value = false
     }
   } catch (e) {
-    showToast('获取申请状态失败')
+    if (e.response?.status !== 401) {
+      showToast('获取申请状态失败')
+    }
   } finally {
     loadingApp.value = false
   }
+}
+
+const fetchWallet = async () => {
+  try {
+    const res = await request.get('/user/wallet')
+    walletInfo.value = res.data
+  } catch (e) {
+    // 静默失败
+  }
+}
+
+const handleResign = async () => {
+  showConfirmDialog({
+    title: '退出制作者',
+    message: '退出后将失去接单权限，保证金将解冻回到余额',
+  }).then(async () => {
+    try {
+      await request.post('/creator/resign')
+      showSuccessToast('已退出制作者')
+      auth.clearAuth()
+      router.push('/login')
+    } catch (e) {
+      showToast(e.response?.data?.detail || '退出失败')
+    }
+  }).catch(() => {})
 }
 
 const submitApplication = async () => {
@@ -48,8 +85,8 @@ const submitApplication = async () => {
   }
   submitting.value = true
   try {
-    const res = await axios.post('/api/v1/creator/apply', {
-      user_id: CURRENT_USER_ID,
+    const res = await request.post('/creator/apply', {
+      user_id: currentUserId.value,
       ...form.value,
     })
     showSuccessToast('申请已提交')
@@ -67,45 +104,110 @@ const submitApplication = async () => {
 const fetchOrders = async () => {
   loadingOrders.value = true
   try {
-    const res = await axios.get(`/api/v1/creator/orders?tab=${orderTab.value}`)
+    const res = await request.get(`/creator/orders?tab=${orderTab.value}`)
     orders.value = res.data
   } catch (e) {
-    showToast('获取订单列表失败')
+    if (e.response?.status === 403) {
+      showToast('请先申请成为制作者')
+    } else {
+      showToast('获取订单列表失败')
+    }
   } finally {
     loadingOrders.value = false
   }
 }
 
 const handleTakeOrder = async (orderNo) => {
+  // 检查余额（需要保证金）
+  const avail = walletInfo.value?.available_balance ?? null
+  const deposit = walletInfo.value?.deposit_amount ?? 20
+  if (avail !== null && avail < deposit) {
+    showToast(`可用余额不足（需要 ¥${deposit} 保证金，当前: ¥${avail.toFixed(2)}）`)
+    return
+  }
   try {
-    const res = await axios.post('/api/v1/creator/take', { order_no: orderNo })
+    const res = await request.post('/creator/take', { order_no: orderNo })
     showSuccessToast('接单成功')
     await fetchOrders()
   } catch (e) {
-    showToast(e.response?.data?.detail || '接单失败')
+    if (e.response?.status === 403) {
+      showToast('只有制作者才能接单')
+    } else {
+      showToast(e.response?.data?.detail || '接单失败')
+    }
   }
 }
 
 const handleDeliver = async (orderNo) => {
-  showConfirmDialog({ title: '确认交付', message: '确认完成此订单？制作者将获得订单金额的30%作为报酬。' })
-    .then(async () => {
-      try {
-        await axios.post('/api/v1/creator/deliver', { order_no: orderNo })
-        showSuccessToast('交付成功，报酬已到账')
-        await fetchOrders()
-      } catch (e) {
-        showToast(e.response?.data?.detail || '交付失败')
-      }
-    }).catch(() => {})
+  let fileUrl = ''
+  let remark = ''
+  
+  showDialog({
+    title: '交付订单',
+    message: '请填写交付文件路径',
+    showInput: true,
+    inputValue: { type: 'textarea', placeholder: '文件路径 (如: /assets/deliveries/xxx.doc)' },
+  })
+    .then(async ({ value }) => {
+      fileUrl = value || ''
+      showDialog({
+        title: '交付备注（可选）',
+        message: '填写给买家的备注',
+        showInput: true,
+      })
+        .then(async ({ value }) => {
+          remark = value || ''
+          showConfirmDialog({
+            title: '确认交付',
+            message: '交付后等待买家验收，验收通过后佣金进入7天冻结期',
+          })
+            .then(async () => {
+              try {
+                await request.post('/creator/deliver', {
+                  order_no: orderNo,
+                  file_url: fileUrl,
+                  remark: remark,
+                })
+                showSuccessToast('已交付，等待买家验收')
+                await fetchOrders()
+              } catch (e) {
+                showToast(e.response?.data?.detail || '交付失败')
+              }
+            })
+            .catch(() => {})
+        })
+        .catch(() => {})
+    })
+    .catch(() => {})
 }
 
 const statusLabel = (s) => {
-  const map = { pending: '待审核', approved: '已通过', rejected: '已拒绝', paid: '待接单', processing: '制作中', completed: '已完成' }
+  const map = {
+    pending: '待审核',
+    approved: '已通过',
+    rejected: '已拒绝',
+    awaiting_claim: '待抢单',
+    in_progress: '制作中',
+    delivered: '待验收',
+    accepted: '已验收',
+    completed: '已完成',
+    cancelled: '已取消',
+  }
   return map[s] || s
 }
 
 const statusType = (s) => {
-  const map = { pending: 'warning', approved: 'success', rejected: 'danger', paid: 'primary', processing: 'warning', completed: 'success' }
+  const map = {
+    pending: 'warning',
+    approved: 'success',
+    rejected: 'danger',
+    awaiting_claim: 'primary',
+    in_progress: 'warning',
+    delivered: 'success',
+    accepted: 'success',
+    completed: 'success',
+    cancelled: 'default',
+  }
   return map[s] || 'default'
 }
 
@@ -117,6 +219,7 @@ const onOrderTabChange = (index) => {
 onMounted(() => {
   fetchApplicationStatus()
   fetchOrders()
+  fetchWallet()
 })
 </script>
 
@@ -157,11 +260,22 @@ onMounted(() => {
           <van-cell title="微信号" :value="application.wechat" />
           <van-cell title="擅长领域" :value="application.specialty || '未填写'" />
           <van-cell v-if="application.review_remark" title="审核备注" :value="application.review_remark" />
+          <van-cell v-if="appStatus === 'approved'" title="冻结保证金">
+            <template #value>
+              <span style="color: #07c160">¥{{ walletInfo.deposit_frozen?.toFixed(2) || '0.00' }}</span>
+            </template>
+          </van-cell>
         </van-cell-group>
 
         <div v-if="application.status === 'rejected'" class="apply-actions">
           <van-button type="primary" round block @click="showApplyForm = true" style="margin-top:15px">
             重新申请
+          </van-button>
+        </div>
+
+        <div v-if="appStatus === 'approved'" class="creator-actions">
+          <van-button type="danger" round block plain @click="handleResign" style="margin-top:15px">
+            退出制作者（保证金将解冻）
           </van-button>
         </div>
       </div>
@@ -198,8 +312,13 @@ onMounted(() => {
               </div>
               <div class="order-amount">报酬: <strong>¥{{ (o.amount * 0.3).toFixed(2) }}</strong></div>
               <div class="order-req">{{ o.requirements }}</div>
-              <van-button v-if="o.status === 'processing'" type="success" size="small" round @click="handleDeliver(o.order_no)">
-                确认交付
+              <div v-if="o.status === 'delivered'" class="freeze-info">⏳ 等待买家验收（7天自动验收）</div>
+              <div v-if="o.status === 'accepted'" class="accepted-info">✅ 验收通过，佣金冻结中</div>
+              <van-button v-if="o.status === 'in_progress'" type="primary" size="small" round @click="handleDeliver(o.order_no)">
+                提交交付
+              </van-button>
+              <van-button v-if="o.status === 'rejected'" type="warning" size="small" round plain @click="handleDeliver(o.order_no)">
+                重新交付
               </van-button>
             </div>
           </div>
@@ -250,6 +369,8 @@ onMounted(() => {
 .order-template { font-weight: 500; font-size: 14px; }
 .order-amount { font-size: 13px; color: #07c160; margin-bottom: 6px; }
 .order-req { font-size: 12px; color: #666; margin-bottom: 10px; padding: 8px; background: #f7f8fa; border-radius: 6px; line-height: 1.5; }
+.freeze-info { font-size: 11px; color: #666; margin: 8px 0; padding: 6px 8px; background: #fffbe6; border-radius: 4px; border: 1px solid #ffe58f; }
+.accepted-info { font-size: 11px; color: #07c160; margin: 8px 0; padding: 6px 8px; background: #f0f9eb; border-radius: 4px; border: 1px solid #c2e7b0; }
 
 .apply-form { padding: 10px 0; }
 .field-hint { font-size: 11px; color: #999; }
