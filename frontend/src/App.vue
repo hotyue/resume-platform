@@ -65,7 +65,7 @@ const doLogout = () => {
         <router-view />
       </main>
 
-      <van-tabbar v-model="activeTab" @change="onTabChange" safe-area-inset-bottom>
+      <van-tabbar v-model="activeTab" @change="onTabChange" fixed safe-area-inset-bottom>
         <van-tabbar-item v-for="(tab, idx) in tabs" :key="tab.path" :icon="tab.icon">
           {{ tab.label }}
         </van-tabbar-item>
