@@ -270,7 +270,12 @@ const fetchSystemConfig = async () => {
 
 const startEditConfig = (key) => {
   editingConfig.value = key
-  newConfigValue.value = systemConfig.value[key]?.toString() || '0'
+  const raw = systemConfig.value[key]
+  // 分佣比例在弹窗中显示为百分比（如 30），存储为小数（如 0.30）
+  const rateKeys = ['creator_rate', 'level1_rate', 'level2_rate', 'level3_rate']
+  newConfigValue.value = rateKeys.includes(key)
+    ? (raw * 100).toFixed(0)
+    : (raw?.toString() || '0')
   showConfigDialog.value = true
 }
 
@@ -281,15 +286,18 @@ const cancelEditConfig = () => {
 }
 
 const saveConfig = async (key) => {
-  const val = parseFloat(newConfigValue.value)
+  let val = parseFloat(newConfigValue.value)
   if (isNaN(val) || val < 0) {
     showToast('请输入有效数值')
     return
   }
+  // 分佣比例：输入为百分比（如 30），转为小数存储（如 0.30）
+  const rateKeys = ['creator_rate', 'level1_rate', 'level2_rate', 'level3_rate']
+  const storeVal = rateKeys.includes(key) ? val / 100 : val
   try {
-    await request.put('/admin/config', { key, value: val })
+    await request.put('/admin/config', { key, value: storeVal })
     showSuccessToast('配置已更新')
-    systemConfig.value[key] = val
+    systemConfig.value[key] = storeVal
     editingConfig.value = null
     newConfigValue.value = ''
     showConfigDialog.value = false
@@ -669,19 +677,19 @@ onMounted(() => {
           <div class="settings-title">分佣比例配置</div>
           <div class="rate-card" @click="startEditConfig('creator_rate')">
             <div class="rate-label">制作者分佣</div>
-            <div class="rate-value">{{ systemConfig.creator_rate?.toFixed(0) }}% <van-icon name="edit" /></div>
+            <div class="rate-value">{{ (systemConfig.creator_rate * 100)?.toFixed(0) }}% <van-icon name="edit" /></div>
           </div>
           <div class="rate-card" @click="startEditConfig('level1_rate')">
             <div class="rate-label">一级推广分佣</div>
-            <div class="rate-value">{{ systemConfig.level1_rate?.toFixed(0) }}% <van-icon name="edit" /></div>
+            <div class="rate-value">{{ (systemConfig.level1_rate * 100)?.toFixed(0) }}% <van-icon name="edit" /></div>
           </div>
           <div class="rate-card" @click="startEditConfig('level2_rate')">
             <div class="rate-label">二级推广分佣</div>
-            <div class="rate-value">{{ systemConfig.level2_rate?.toFixed(0) }}% <van-icon name="edit" /></div>
+            <div class="rate-value">{{ (systemConfig.level2_rate * 100)?.toFixed(0) }}% <van-icon name="edit" /></div>
           </div>
           <div class="rate-card" @click="startEditConfig('level3_rate')">
             <div class="rate-label">三级推广分佣</div>
-            <div class="rate-value">{{ systemConfig.level3_rate?.toFixed(0) }}% <van-icon name="edit" /></div>
+            <div class="rate-value">{{ (systemConfig.level3_rate * 100)?.toFixed(0) }}% <van-icon name="edit" /></div>
           </div>
         </div>
 
