@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.resume-list { padding: 10px; min-height: calc(100vh - 96px); }
+.resume-list { padding: 10px; min-height: calc(100vh - 96px); padding-bottom: 70px; }
 
 /* 分类筛选栏 */
 .category-bar {
