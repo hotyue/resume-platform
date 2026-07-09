@@ -388,6 +388,7 @@ onBeforeUnmount(() => {
 /* 模板卡片 */
 .template-card {
   position: relative;
+  width: 100%;
   background: #fff;
   border-radius: 8px;
   overflow: hidden;
