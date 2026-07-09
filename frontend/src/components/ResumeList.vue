@@ -407,8 +407,12 @@ onBeforeUnmount(() => {
 }
 
 /* 覆盖 van-grid-item 默认样式 */
-.van-grid-item {
-  padding: 5px !important;
+:deep(.van-grid-item) {
+  padding: 5px 5px !important;
+}
+:deep(.van-grid-item__content) {
+  padding: 0 !important;
+  background: transparent !important;
 }
 
 /* 模板卡片 */
@@ -423,6 +427,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   transition: transform 0.2s;
+  box-sizing: border-box;
 }
 
 .image-wrapper {
@@ -468,7 +473,7 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
-.info { padding: 10px; }
+.info { padding: 10px; box-sizing: border-box; }
 .title { font-size: 13px; color: #323233; margin-bottom: 8px; font-weight: 500; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .action-bar { display: flex; justify-content: center; align-items: center; gap: 8px; }
 
