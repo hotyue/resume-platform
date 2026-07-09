@@ -252,10 +252,17 @@ const newConfigValue = ref('')
 const fetchSystemConfig = async () => {
   try {
     const res = await request.get('/admin/config')
-    const configs = res.data
-    configs.forEach(c => {
-      systemConfig.value[c.key] = parseFloat(c.value)
-    })
+    const data = res.data
+    // 后端返回对象 { download_price: 1.99, ... } 或数组 [{ key, value }, ...]
+    if (Array.isArray(data)) {
+      data.forEach(c => {
+        systemConfig.value[c.key] = parseFloat(c.value)
+      })
+    } else if (typeof data === 'object') {
+      Object.keys(data).forEach(key => {
+        systemConfig.value[key] = parseFloat(data[key])
+      })
+    }
   } catch (e) {
     console.error('获取系统配置失败', e)
   }
