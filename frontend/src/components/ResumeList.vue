@@ -407,7 +407,7 @@ onBeforeUnmount(() => {
 /* CSS Grid 自适应多栏布局 */
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 10px;
 }
 
