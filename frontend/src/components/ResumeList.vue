@@ -252,12 +252,15 @@ const startPolling = () => {
   pollTimer.value = setInterval(async () => {
     try {
       const res = await request.get(`/orders/status/${currentOrder.value.order_no}`)
-      if (res.data.status === 'paid') {
+      if (res.data.status === 'paid' || res.data.status === 'awaiting_claim') {
         stopPolling()
         paymentStatus.value = 'success'
         showToast({ type: 'success', message: '支付成功！' })
         showCashier.value = false
-        window.location.href = `/api/v1/orders/download/${currentOrder.value.order_no}`
+        // 定制订单不跳下载页
+        if (currentOrder.value.order_type !== 'custom_service') {
+          window.location.href = `/api/v1/orders/download/${currentOrder.value.order_no}`
+        }
       }
     } catch (e) {}
   }, 3000)
@@ -275,8 +278,13 @@ const executeMockPay = async () => {
   try {
     await request.post('/payments/mock-callback', { order_no: currentOrder.value.order_no })
     showCashier.value = false
-    showToast({ type: 'success', message: '支付成功，开始下载' })
-    window.location.href = `/api/v1/orders/download/${currentOrder.value.order_no}`
+    // 定制订单支付后等待制作者接单，不跳下载页
+    if (currentOrder.value.order_type === 'custom_service') {
+      showToast({ type: 'success', message: '支付成功，等待制作者接单' })
+    } else {
+      showToast({ type: 'success', message: '支付成功，开始下载' })
+      window.location.href = `/api/v1/orders/download/${currentOrder.value.order_no}`
+    }
   } catch (e) {
     showToast('支付失败')
   } finally { closeToast() }
