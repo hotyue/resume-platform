@@ -255,7 +255,7 @@ const startPolling = () => {
       if (res.data.status === 'paid' || res.data.status === 'awaiting_claim') {
         stopPolling()
         paymentStatus.value = 'success'
-        showToast({ type: 'success', message: '支付成功！' })
+        showToast({ type: 'success', message: '支付成功！', duration: 3000 })
         showCashier.value = false
         // 定制订单不跳下载页
         if (currentOrder.value.type !== 'custom_service') {
@@ -277,17 +277,18 @@ const executeMockPay = async () => {
   showLoadingToast({ message: '支付中...', forbidClick: true })
   try {
     await request.post('/payments/mock-callback', { order_no: currentOrder.value.order_no })
+    closeToast()
     showCashier.value = false
-    // 定制订单支付后等待制作者接单，不跳下载页
     if (currentOrder.value.type === 'custom_service') {
-      showToast({ type: 'success', message: '支付成功，等待制作者接单' })
+      showToast({ type: 'success', message: '支付成功，等待制作者接单', duration: 3000 })
     } else {
-      showToast({ type: 'success', message: '支付成功，开始下载' })
+      showToast({ type: 'success', message: '支付成功，开始下载', duration: 3000 })
       window.location.href = `/api/v1/orders/download/${currentOrder.value.order_no}`
     }
   } catch (e) {
+    closeToast()
     showToast('支付失败')
-  } finally { closeToast() }
+  }
 }
 
 onMounted(() => {

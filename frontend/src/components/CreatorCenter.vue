@@ -118,11 +118,11 @@ const fetchOrders = async () => {
 }
 
 const handleTakeOrder = async (orderNo) => {
-  // 检查余额（需要保证金）
-  const avail = walletInfo.value?.available_balance ?? null
+  // 检查余额（保证金检查与后端一致，用 wallet_balance）
+  const balance = walletInfo.value?.wallet_balance ?? null
   const deposit = walletInfo.value?.deposit_amount ?? 20
-  if (avail !== null && avail < deposit) {
-    showToast(`可用余额不足（需要 ¥${deposit} 保证金，当前: ¥${avail.toFixed(2)}）`)
+  if (balance !== null && balance < deposit) {
+    showToast(`余额不足（需要 ¥${deposit} 保证金，当前: ¥${balance.toFixed(2)}）`)
     return
   }
   try {
