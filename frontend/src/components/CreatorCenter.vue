@@ -95,7 +95,10 @@ const handleResign = async () => {
       auth.clearAuth()
       router.push('/login')
     } catch (e) {
-      showToast(e.response?.data?.detail || '退出失败')
+      showConfirmDialog({
+        title: '退出失败',
+        message: e.response?.data?.detail || '退出失败，请稍后重试',
+      }).catch(() => {})
     }
   }).catch(() => {})
 }
