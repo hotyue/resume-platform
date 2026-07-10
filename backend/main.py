@@ -958,6 +958,9 @@ async def take_order(
             detail=f"余额不足（需要 ≥ {deposit_amt} 元保证金，当前: {round(user.wallet_balance, 2)} 元）")
     order.creator_id = current_user["id"]
     order.status = "in_progress"
+    order.claimed_at = datetime.now()
+    order.penalty_count = 0
+    order.penalty_deducted = 0.0
     db.commit()
     return {"status": "success", "message": "抢单成功"}
 

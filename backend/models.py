@@ -1,4 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean, Text, DateTime
+from sqlalchemy.dialects.postgresql import JSON as PGJSON
+from sqlalchemy import JSON
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -66,6 +68,9 @@ class Order(Base):
     ref_user_id = Column(Integer, nullable=True)
     custom_requirements = Column(Text, nullable=True)
     creator_id = Column(Integer, nullable=True)
+    claimed_at = Column(DateTime, nullable=True)          # 接单时间（交付周期起点）
+    penalty_deducted = Column(Float, default=0.0)        # 已扣违约金总额
+    penalty_count = Column(Integer, default=0)           # 已扣违约金次数（每8h一次）
     delivered_at = Column(DateTime, nullable=True)
     accepted_at = Column(DateTime, nullable=True)
     freeze_until = Column(DateTime, nullable=True)
@@ -197,5 +202,18 @@ class RechargeRecord(Base):
     amount = Column(Float, nullable=False)
     method = Column(String(20), default="manual")        # manual / payjs
     status = Column(String(20), default="completed")      # pending / completed / failed
+    created_at = Column(DateTime, default=datetime.now)
+    user = relationship("User")
+
+
+class CreatorAuditLog(Base):
+    """制作者风险管控审计日志"""
+    __tablename__ = "creator_audit_log"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    order_no = Column(String(32), nullable=True, index=True)
+    action = Column(String(50), nullable=False)           # penalty_deducted / order_republished / cycle_reset / creator_exit_success / creator_exit_forced / admin_intervened
+    detail = Column(Text, nullable=True)                  # JSON 字符串记录详情
+    penalty_amount = Column(Float, default=0.0)           # 违约金金额（如适用）
     created_at = Column(DateTime, default=datetime.now)
     user = relationship("User")
