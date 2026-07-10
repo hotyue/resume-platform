@@ -71,7 +71,25 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     return current_user
 
 
-def require_creator(current_user: dict = Depends(get_current_user)) -> dict:
-    if current_user.get("role") not in ("creator", "admin"):
+def require_creator(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """检查制作者权限 — 查数据库实时状态，防止 JWT 过期导致权限不一致"""
+    # admin 直接放行
+    if current_user.get("role") == "admin":
+        return current_user
+    
+    # 查数据库确认真实角色
+    from database import engine
+    import models as m
+    
+    user = db.query(m.User).filter(m.User.id == current_user["id"]).first()
+    if not user or user.role != "creator":
         raise HTTPException(status_code=403, detail="需要制作者权限")
+    
+    # 检查申请状态必须是 approved
+    app = db.query(m.CreatorApplication).filter(
+        m.CreatorApplication.user_id == current_user["id"]
+    ).first()
+    if not app or app.status != "approved":
+        raise HTTPException(status_code=403, detail="制作者申请尚未批准，无法操作")
+    
     return current_user
