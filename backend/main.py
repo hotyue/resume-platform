@@ -239,7 +239,7 @@ def reset_delivery_cycle(order, db: Session):
 
 
 def check_delivery_penalties(db: Session):
-    """检查超时订单并扣除违约金（每8h扣10%，上限50%）"""
+    """检查超时订单并扣除违约金（每8h扣10%，上限50%），72h超时重新发布"""
     now = datetime.now()
     in_progress_orders = db.query(m.Order).filter(
         m.Order.status == "in_progress",
@@ -254,6 +254,28 @@ def check_delivery_penalties(db: Session):
 
         elapsed = now - order.claimed_at
         elapsed_hours = elapsed.total_seconds() / 3600
+
+        # 超过72小时：重新发布到众包大厅
+        if elapsed_hours >= 72:
+            creator_id = order.creator_id
+            order_no = order.order_no
+            order.status = "awaiting_claim"
+            order.creator_id = None
+            order.claimed_at = None
+            order.penalty_count = 5  # 上限
+            order.penalty_deducted = round(order.amount * 0.50, 2)  # 上限50%
+
+            # 记录审计日志
+            audit_log(db, creator_id, order_no, "order_republished",
+                      f"72h超时重新发布至众包大厅（累计违约金 ¥{order.penalty_deducted}）")
+
+            results.append({
+                "order_no": order_no,
+                "creator_id": creator_id,
+                "action": "republished",
+                "reason": "72h超时",
+            })
+            continue
 
         # 超过24小时才开始扣违约金
         if elapsed_hours < 24:
@@ -288,8 +310,6 @@ def check_delivery_penalties(db: Session):
                 elif remaining > 0:
                     # 余额不够，扣光
                     creator.wallet_balance = 0
-                    remaining -= (total_new_penalty - deduct_from_deposit)
-                    # 记录无法全额扣除
 
             order.penalty_count = expected_penalty_count
             order.penalty_deducted = round((order.penalty_deducted or 0) + total_new_penalty, 2)
