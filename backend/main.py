@@ -218,6 +218,26 @@ def get_deposit_amount(db: Session) -> float:
     return get_config(db, "deposit_amount", 20.0)
 
 
+def audit_log(db: Session, user_id: int, order_no: str, action: str, detail: str = None, penalty_amount: float = 0.0):
+    """记录制作者风险管控审计日志"""
+    log = m.CreatorAuditLog(
+        user_id=user_id,
+        order_no=order_no,
+        action=action,
+        detail=detail,
+        penalty_amount=penalty_amount,
+        created_at=datetime.now(),
+    )
+    db.add(log)
+
+
+def reset_delivery_cycle(order, db: Session):
+    """重置交付周期（24小时重新开始）"""
+    order.claimed_at = datetime.now()
+    audit_log(db, order.creator_id, order.order_no, "cycle_reset",
+              f"交付周期重置，重新计时24小时")
+
+
 # ---------------------------------------------------------------------------
 # 分销链
 # ---------------------------------------------------------------------------
@@ -977,6 +997,8 @@ async def deliver_order(
     order.status = "delivered"
     order.delivered_at = datetime.now()
     order.freeze_until = datetime.now() + timedelta(days=7)
+    # 交付动作重置周期（为验收不通过退回后重新计时）
+    reset_delivery_cycle(order, db)
     db.commit()
     return {"status": "success", "message": "已交付，等待买家验收"}
 
