@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { showToast, showSuccessToast, showConfirmDialog, showDialog, showLoadingToast, closeToast } from 'vant'
 import request from '../api/request.js'
 
@@ -12,14 +12,15 @@ const dashboard = ref(null)
 const applications = ref([])
 const appStatus = ref('pending')
 const appLoading = ref(false)
+const appActiveTab = ref(0)
 
-const onAppTabChange = (index) => {
+watch(appActiveTab, (index) => {
   const tab = appTabs[index]
   if (tab) {
     appStatus.value = tab.key
     fetchApplications(tab.key)
   }
-}
+})
 
 // ========== 订单管理 ==========
 const orders = ref([])
@@ -517,7 +518,7 @@ onMounted(() => {
 
       <!-- Tab 1: 入驻审核 -->
        <van-tab title="📋 入驻审核">
-         <van-tabs :swipeable="false" color="#1989fa" @change="onAppTabChange">
+         <van-tabs v-model:active="appActiveTab" :swipeable="false" color="#1989fa">
            <van-tab v-for="t in appTabs" :key="t.key" :title="t.label">
              <div v-if="appLoading" class="loading">加载中...</div>
              <div v-else-if="applications.length === 0" class="empty">暂无记录</div>
