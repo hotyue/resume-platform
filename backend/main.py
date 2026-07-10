@@ -592,11 +592,28 @@ async def apply_creator(req: CreatorAppReq, db: Session = Depends(get_db),
         raise HTTPException(status_code=400,
             detail=f"余额不足（需要保证金 {deposit_amt} 元，当前: {round(user.wallet_balance, 2)} 元）")
     user.deposit_frozen += deposit_amt
-    db.add(m.CreatorApplication(
-        user_id=current_user["id"], real_name=req.real_name, phone=req.phone,
-        wechat=req.wechat, specialty=req.specialty,
-        portfolio_desc=req.portfolio_desc, experience=req.experience,
-    ))
+
+    # 如果已有 revoked/rejected 记录，直接 UPDATE 复用
+    existing = db.query(m.CreatorApplication).filter(
+        m.CreatorApplication.user_id == current_user["id"],
+        m.CreatorApplication.status.in_(["revoked", "rejected"])
+    ).first()
+    if existing:
+        existing.real_name = req.real_name
+        existing.phone = req.phone
+        existing.wechat = req.wechat
+        existing.specialty = req.specialty
+        existing.portfolio_desc = req.portfolio_desc
+        existing.experience = req.experience
+        existing.status = "pending"
+        existing.review_remark = None
+        existing.reviewed_at = None
+    else:
+        db.add(m.CreatorApplication(
+            user_id=current_user["id"], real_name=req.real_name, phone=req.phone,
+            wechat=req.wechat, specialty=req.specialty,
+            portfolio_desc=req.portfolio_desc, experience=req.experience,
+        ))
     db.commit()
     return {"status": "pending", "message": "申请已提交，保证金已冻结"}
 
