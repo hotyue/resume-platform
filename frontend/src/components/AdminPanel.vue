@@ -126,7 +126,7 @@ const fetchApplications = async (status) => {
   try {
     const url = status ? `/admin/applications?status=${status}` : '/admin/applications'
     const res = await request.get(url)
-    applications.value = res.data
+    applications.value = res.data.applications || []
   } catch (e) {
     showToast('获取申请列表失败')
   } finally {
@@ -142,7 +142,7 @@ const handleAppReview = async (app, action) => {
   }).then(async () => {
     try {
       await request.post('/admin/applications/review', {
-        application_id: app.id,
+        request_id: app.id,
         status: action,
         remark: action === 'approved' ? '审核通过，欢迎加入' : '请完善资料后重新申请',
       })
