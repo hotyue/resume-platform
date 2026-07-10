@@ -87,10 +87,10 @@ const fetchWallet = async () => {
 const handleResign = async () => {
   showConfirmDialog({
     title: '退出制作者',
-    message: '退出后将失去接单权限，保证金将解冻回到余额',
+    message: '退出后将失去接单权限，保证金门槛将清除',
   }).then(async () => {
     try {
-      await request.post('/creator/resign')
+      await request.post('/creator/resign', { force: false })
       showSuccessToast('已退出制作者')
       auth.clearAuth()
       router.push('/login')
@@ -292,7 +292,7 @@ onMounted(() => {
 
         <div v-if="appStatus === 'approved'" class="creator-actions">
           <van-button type="danger" round block plain @click="handleResign" style="margin-top:15px">
-            退出制作者（保证金将解冻）
+            退出制作者（清除保证金门槛）
           </van-button>
         </div>
       </div>
