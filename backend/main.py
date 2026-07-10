@@ -3,9 +3,11 @@
 """
 import os
 import uuid
+import asyncio
 import logging
 import hashlib
 import hmac
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -167,7 +169,32 @@ class UpdateSystemConfigReq(BaseModel):
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
-app = FastAPI(title="Resume Platform API")
+
+async def _delivery_check_loop():
+    """后台定时任务：每30分钟检查超时订单"""
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                results = check_delivery_penalties(db)
+                if results:
+                    logger.info(f"交付超时检查完成，处理了 {len(results)} 个订单: {results}")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"交付超时检查异常: {e}")
+        await asyncio.sleep(1800)  # 30分钟
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动时自动创建数据库表
+    m.Base.metadata.create_all(bind=engine)
+    # 启动后台定时任务
+    asyncio.create_task(_delivery_check_loop())
+    logger.info("后台定时任务已启动：每30分钟检查超时订单")
+    yield
+
+app = FastAPI(title="Resume Platform API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
