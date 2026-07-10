@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { showToast, showLoadingToast, closeToast } from 'vant'
 import request from '../api/request.js'
 import { useAuthStore } from '../stores/auth'
@@ -42,9 +42,21 @@ const categories = [
 const activeCategory = ref('')
 const searchKeyword = ref('')
 
-// 图片全屏预览
+// ================= 图片全屏预览 =================
 const showPreview = ref(false)
 const previewUrl = ref('')
+
+// 监听 showPreview 变化，打开时绑定 ESC，关闭时解绑
+watch(showPreview, (val) => {
+  if (val) {
+    const onKey = (e) => {
+      if (e.key === 'Escape') showPreview.value = false
+    }
+    document.addEventListener('keydown', onKey)
+    // 清理函数
+    return () => document.removeEventListener('keydown', onKey)
+  }
+})
 
 // ================= 懒加载 (IntersectionObserver) =================
 let observer = null
@@ -343,7 +355,12 @@ onBeforeUnmount(() => {
     </van-pull-refresh>
 
     <!-- 图片全屏预览 -->
-    <van-image-preview v-model:show="showPreview" :images="[previewUrl]" @close="showPreview = false" />
+    <Teleport to="body">
+      <div class="preview-overlay" v-if="showPreview" @click.self="showPreview = false">
+        <img :src="previewUrl" class="preview-img" />
+        <i class="preview-close" @click="showPreview = false"></i>
+      </div>
+    </Teleport>
 
     <van-dialog v-model:show="showCustomForm" title="填写代做需求" show-cancel-button @confirm="submitCustomOrder">
       <van-field v-model="customReqs" type="textarea" rows="3" placeholder="请填写您的学校、专业、求职意向及内容重点..." />
@@ -532,4 +549,46 @@ onBeforeUnmount(() => {
 .qrcode-img { width: 180px; height: 180px; display: block; margin: 0 auto; }
 .qrcode-tip { font-size: 14px; color: #666; margin-top: 8px; }
 .qrcode-tip-loading { font-size: 13px; color: #999; margin-top: 5px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+/* 图片全屏预览 */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.preview-img {
+  max-width: 95vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 4px;
+}
+.preview-close {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10001;
+  width: 32px;
+  height: 32px;
+  font-size: 24px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.preview-close::before,
+.preview-close::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 2px;
+  background: #fff;
+  border-radius: 1px;
+}
+.preview-close::before { transform: rotate(45deg); }
+.preview-close::after { transform: rotate(-45deg); }
 </style>
