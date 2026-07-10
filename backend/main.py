@@ -135,6 +135,9 @@ class CreatorAppReq(BaseModel):
     portfolio_desc: str = ""
     experience: str = ""
 
+class ResignCreatorReq(BaseModel):
+    force: bool = False  # 是否强制退出（扣除全部保证金+订单重新发布）
+
 class WithdrawReq(BaseModel):
     amount: float
     payment_info: str
@@ -613,13 +616,52 @@ async def get_application(db: Session = Depends(get_db), current_user: dict = De
 
 
 @app.post("/api/v1/creator/resign")
-async def resign_creator(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     user = db.query(m.User).filter(m.User.id == current_user["id"]).first()
     if user.role != "creator":
         raise HTTPException(status_code=400, detail="当前不是制作者")
+
+    # 检查未完成订单（in_progress 或 delivered 状态）
+    pending_orders = db.query(m.Order).filter(
+        m.Order.creator_id == current_user["id"],
+        m.Order.status.in_(["in_progress", "delivered"])
+    ).all()
+
+    if pending_orders:
+        if not req.force:
+            order_nos = [o.order_no for o in pending_orders]
+            raise HTTPException(
+                status_code=400,
+                detail=f"存在 {len(pending_orders)} 个未完成订单（{', '.join(order_nos)}），无法退出。如需强制退出，请设置 force=true（将扣除全部保证金并将订单重新发布）"
+            )
+
+        # 强制退出：扣除全部保证金 + 订单重新发布
+        deposit = user.deposit_frozen
+        user.deposit_frozen = 0.0
+        user.role = "user"
+
+        for order in pending_orders:
+            order.creator_id = None
+            order.claimed_at = None
+            order.status = "awaiting_claim"
+            audit_log(db, current_user["id"], order.order_no, "creator_exit_forced",
+                      f"制作者强制退出，订单重新发布至众包大厅")
+
+        audit_log(db, current_user["id"], "", "creator_exit_forced",
+                  f"强制退出制作者，扣除保证金 ¥{deposit}，{len(pending_orders)} 个订单重新发布")
+        db.commit()
+        return {
+            "message": "已强制退出制作者",
+            "deposit_deducted": round(deposit, 2),
+            "orders_republished": len(pending_orders),
+        }
+
+    # 无未完成订单：正常退出，退还保证金
     deposit = user.deposit_frozen
     user.deposit_frozen = 0.0
     user.role = "user"
+    audit_log(db, current_user["id"], "", "creator_exit_success",
+              f"正常退出制作者，退还保证金 ¥{deposit}")
     db.commit()
     return {"message": "已退出制作者", "deposit_refunded": round(deposit, 2)}
 
