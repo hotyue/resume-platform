@@ -229,6 +229,7 @@ const statusLabel = (s) => {
     pending: '待审核',
     approved: '已通过',
     rejected: '已拒绝',
+    revoked: '已撤销',
     awaiting_claim: '待抢单',
     in_progress: '制作中',
     delivered: '待验收',
@@ -244,6 +245,7 @@ const statusType = (s) => {
     pending: 'warning',
     approved: 'success',
     rejected: 'danger',
+    revoked: 'danger',
     awaiting_claim: 'primary',
     in_progress: 'warning',
     delivered: 'success',
@@ -310,7 +312,10 @@ onMounted(() => {
           </van-cell>
         </van-cell-group>
 
-        <div v-if="application.status === 'rejected'" class="apply-actions">
+        <div v-if="application.status === 'rejected' || application.status === 'revoked'" class="apply-actions">
+          <div v-if="application.status === 'revoked'" class="revoked-notice">
+            你的制作者资格已被撤销，如需再次成为制作者，请重新申请
+          </div>
           <van-button type="primary" round block @click="openApply" style="margin-top:15px">
             重新申请
           </van-button>
@@ -531,5 +536,13 @@ onMounted(() => {
   color: #07c160;
   cursor: pointer;
   font-weight: bold;
+}
+.revoked-notice {
+  padding: 10px 15px;
+  background: #fff2f0;
+  border-radius: 6px;
+  color: #cf1322;
+  font-size: 13px;
+  margin-bottom: 10px;
 }
 </style>

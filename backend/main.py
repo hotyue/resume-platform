@@ -644,6 +644,12 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
         user.role = "user"
         user.deposit_frozen = 0.0  # 清除门槛标识
 
+        # 撤销申请记录
+        app = db.query(m.CreatorApplication).filter(m.CreatorApplication.user_id == current_user["id"]).first()
+        if app:
+            app.status = "revoked"
+            app.reviewed_at = datetime.now()
+
         for order in pending_orders:
             order.creator_id = None
             order.claimed_at = None
@@ -663,6 +669,13 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
     # 无未完成订单：正常退出
     user.role = "user"
     user.deposit_frozen = 0.0  # 清除门槛标识
+
+    # 撤销申请记录
+    app = db.query(m.CreatorApplication).filter(m.CreatorApplication.user_id == current_user["id"]).first()
+    if app:
+        app.status = "revoked"
+        app.reviewed_at = datetime.now()
+
     audit_log(db, current_user["id"], "", "creator_exit_success",
               "正常退出制作者")
     db.commit()
