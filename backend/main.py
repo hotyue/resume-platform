@@ -635,10 +635,12 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
             order_nos = [o.order_no for o in pending_orders]
             raise HTTPException(
                 status_code=400,
-                detail=f"存在 {len(pending_orders)} 个未完成订单（{', '.join(order_nos)}），无法退出。如需强制退出，请设置 force=true（订单将重新发布至众包大厅）"
+                detail=f"存在 {len(pending_orders)} 个未完成订单（{', '.join(order_nos)}），无法退出。如需强制退出，请设置 force=true（将扣除全部余额并将订单重新发布）"
             )
 
-        # 强制退出：清除身份 + 订单重新发布
+        # 强制退出：扣除全部余额 + 订单重新发布
+        balance_deducted = user.wallet_balance
+        user.wallet_balance = 0.0
         user.role = "user"
         user.deposit_frozen = 0.0  # 清除门槛标识
 
@@ -650,10 +652,11 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
                       f"制作者强制退出，订单重新发布至众包大厅")
 
         audit_log(db, current_user["id"], "", "creator_exit_forced",
-                  f"强制退出制作者，{len(pending_orders)} 个订单重新发布")
+                  f"强制退出制作者，扣除余额 ¥{balance_deducted}，{len(pending_orders)} 个订单重新发布")
         db.commit()
         return {
             "message": "已强制退出制作者",
+            "balance_deducted": round(balance_deducted, 2),
             "orders_republished": len(pending_orders),
         }
 
