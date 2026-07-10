@@ -25,6 +25,23 @@ const agreed = ref(false)
 
 // 协议弹窗
 const showAgreement = ref(false)
+const pendingApply = ref(false) // 点击"立即申请"后先弹协议，确认后打开表单
+
+// 打开申请流程：先弹协议 → 同意 → 弹表单
+const openApply = () => {
+  pendingApply.value = true
+  showAgreement.value = true
+}
+
+// 协议确认回调
+const onAgree = () => {
+  agreed.value = true
+  showAgreement.value = false
+  if (pendingApply.value) {
+    pendingApply.value = false
+    showApplyForm.value = true
+  }
+}
 
 // 订单相关
 const orderTab = ref('pending')
@@ -235,12 +252,9 @@ onMounted(() => {
     <div v-else class="status-section">
       <div v-if="!hasApplied" class="no-apply">
         <p class="no-apply-text">你还不是制作者，提交入驻申请后可接单赚取报酬</p>
-        <van-button type="primary" round block @click="showApplyForm = true">
+        <van-button type="primary" round block @click="openApply">
           立即申请入驻
         </van-button>
-        <div class="agreement-link" @click="showAgreement = true">
-          <van-icon name="label-o" size="14" /> 点击查看《制作者协议》
-        </div>
         <div class="earn-info">
           <h4>制作者收益</h4>
           <ul>
@@ -271,7 +285,7 @@ onMounted(() => {
         </van-cell-group>
 
         <div v-if="application.status === 'rejected'" class="apply-actions">
-          <van-button type="primary" round block @click="showApplyForm = true" style="margin-top:15px">
+          <van-button type="primary" round block @click="openApply" style="margin-top:15px">
             重新申请
           </van-button>
         </div>
@@ -350,8 +364,8 @@ onMounted(() => {
     </van-dialog>
 
     <!-- 制作者协议弹窗 -->
-    <van-dialog v-model:show="showAgreement" title="📜 制作者协议" show-confirm-button confirm-button-text="我已阅读并同意"
-      @confirm="() => { agreed = true; showAgreement = false }" style="max-height:80vh; overflow-y:auto; padding:20px 15px;">
+    <van-dialog v-model:show="showAgreement" title="📜 制作者协议" show-cancel-button show-confirm-button confirm-button-text="我已阅读并同意"
+      @confirm="onAgree" style="max-height:80vh; overflow-y:auto; padding:20px 15px;">
       <div class="agreement-content">
         <h3>一、加入条件</h3>
         <ol>
