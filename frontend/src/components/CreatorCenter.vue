@@ -92,7 +92,7 @@ const handleResign = async () => {
     try {
       await request.post('/creator/resign', { force: false })
       showSuccessToast('已退出制作者')
-      auth.clearAuth()
+      auth.logout()
       router.push('/login')
     } catch (e) {
       const msg = e.response?.data?.detail || '退出失败，请稍后重试'
@@ -107,7 +107,7 @@ const handleResign = async () => {
           try {
             await request.post('/creator/resign', { force: true })
             showSuccessToast('已强制退出制作者')
-            auth.clearAuth()
+            auth.logout()
             router.push('/login')
           } catch (e2) {
             showConfirmDialog({
@@ -123,7 +123,7 @@ const handleResign = async () => {
         }).catch(() => {})
       }
     }
-  }).catch(() => {})
+  })
 }
 
 const submitApplication = async () => {
