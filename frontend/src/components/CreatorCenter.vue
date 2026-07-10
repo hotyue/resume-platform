@@ -95,10 +95,33 @@ const handleResign = async () => {
       auth.clearAuth()
       router.push('/login')
     } catch (e) {
-      showConfirmDialog({
-        title: '退出失败',
-        message: e.response?.data?.detail || '退出失败，请稍后重试',
-      }).catch(() => {})
+      const msg = e.response?.data?.detail || '退出失败，请稍后重试'
+      if (msg.includes('force=true')) {
+        // 有未完成订单，询问是否强制退出
+        showConfirmDialog({
+          title: '存在未完成订单',
+          message: msg + '\n\n是否强制退出？将扣除全部余额并将订单重新发布',
+          confirmButtonText: '强制退出',
+          cancelButtonText: '取消',
+        }).then(async () => {
+          try {
+            await request.post('/creator/resign', { force: true })
+            showSuccessToast('已强制退出制作者')
+            auth.clearAuth()
+            router.push('/login')
+          } catch (e2) {
+            showConfirmDialog({
+              title: '强制退出失败',
+              message: e2.response?.data?.detail || '操作失败',
+            }).catch(() => {})
+          }
+        }).catch(() => {})
+      } else {
+        showConfirmDialog({
+          title: '退出失败',
+          message: msg,
+        }).catch(() => {})
+      }
     }
   }).catch(() => {})
 }
