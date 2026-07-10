@@ -327,19 +327,16 @@ def check_delivery_penalties(db: Session):
             penalty_per_unit = round(order.amount * 0.10, 2)  # 每周期10%
             total_new_penalty = round(penalty_per_unit * new_penalties, 2)
 
-            # 从制作者余额扣除
+            # 从制作者余额扣除（保证金仅为阈值，不占额度）
             creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
             if creator:
-                # 扣除保证金（优先）和余额
-                deduct_from_deposit = min(total_new_penalty, creator.deposit_frozen)
-                remaining = total_new_penalty - deduct_from_deposit
-                creator.deposit_frozen -= deduct_from_deposit
+                can_deduct = min(total_new_penalty, creator.wallet_balance)
+                creator.wallet_balance -= can_deduct
 
-                if remaining > 0 and creator.wallet_balance >= remaining:
-                    creator.wallet_balance -= remaining
-                elif remaining > 0:
-                    # 余额不够，扣光
-                    creator.wallet_balance = 0
+                if can_deduct < total_new_penalty:
+                    # 余额不足，记录缺口
+                    audit_log(db, order.creator_id, order.order_no, "penalty_insufficient",
+                              f"余额不足以支付违约金：需 ¥{total_new_penalty}，仅扣 ¥{can_deduct}")
 
             order.penalty_count = expected_penalty_count
             order.penalty_deducted = round((order.penalty_deducted or 0) + total_new_penalty, 2)
@@ -617,11 +614,17 @@ async def get_application(db: Session = Depends(get_db), current_user: dict = De
 
 @app.post("/api/v1/creator/resign")
 async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """退出制作者
+
+    保证金仅为接单门槛阈值，不代表实际资金。
+    正常退出：清除制作者身份和门槛标识
+    强制退出：清除制作者身份，未完成订单重新发布
+    """
     user = db.query(m.User).filter(m.User.id == current_user["id"]).first()
     if user.role != "creator":
         raise HTTPException(status_code=400, detail="当前不是制作者")
 
-    # 检查未完成订单（in_progress 或 delivered 状态）
+    # 检查未完成订单
     pending_orders = db.query(m.Order).filter(
         m.Order.creator_id == current_user["id"],
         m.Order.status.in_(["in_progress", "delivered"])
@@ -632,13 +635,12 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
             order_nos = [o.order_no for o in pending_orders]
             raise HTTPException(
                 status_code=400,
-                detail=f"存在 {len(pending_orders)} 个未完成订单（{', '.join(order_nos)}），无法退出。如需强制退出，请设置 force=true（将扣除全部保证金并将订单重新发布）"
+                detail=f"存在 {len(pending_orders)} 个未完成订单（{', '.join(order_nos)}），无法退出。如需强制退出，请设置 force=true（订单将重新发布至众包大厅）"
             )
 
-        # 强制退出：扣除全部保证金 + 订单重新发布
-        deposit = user.deposit_frozen
-        user.deposit_frozen = 0.0
+        # 强制退出：清除身份 + 订单重新发布
         user.role = "user"
+        user.deposit_frozen = 0.0  # 清除门槛标识
 
         for order in pending_orders:
             order.creator_id = None
@@ -648,22 +650,20 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
                       f"制作者强制退出，订单重新发布至众包大厅")
 
         audit_log(db, current_user["id"], "", "creator_exit_forced",
-                  f"强制退出制作者，扣除保证金 ¥{deposit}，{len(pending_orders)} 个订单重新发布")
+                  f"强制退出制作者，{len(pending_orders)} 个订单重新发布")
         db.commit()
         return {
             "message": "已强制退出制作者",
-            "deposit_deducted": round(deposit, 2),
             "orders_republished": len(pending_orders),
         }
 
-    # 无未完成订单：正常退出，退还保证金
-    deposit = user.deposit_frozen
-    user.deposit_frozen = 0.0
+    # 无未完成订单：正常退出
     user.role = "user"
+    user.deposit_frozen = 0.0  # 清除门槛标识
     audit_log(db, current_user["id"], "", "creator_exit_success",
-              f"正常退出制作者，退还保证金 ¥{deposit}")
+              "正常退出制作者")
     db.commit()
-    return {"message": "已退出制作者", "deposit_refunded": round(deposit, 2)}
+    return {"message": "已退出制作者"}
 
 
 # ================= 管理员 =================

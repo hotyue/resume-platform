@@ -21,6 +21,10 @@ const walletInfo = ref({})
 const showApplyForm = ref(false)
 const form = ref({ real_name: '', phone: '', wechat: '', specialty: '', portfolio_desc: '', experience: '' })
 const submitting = ref(false)
+const agreed = ref(false)
+
+// 协议弹窗
+const showAgreement = ref(false)
 
 // 订单相关
 const orderTab = ref('pending')
@@ -82,6 +86,9 @@ const handleResign = async () => {
 const submitApplication = async () => {
   if (!form.value.real_name || !form.value.phone || !form.value.wechat) {
     return showToast('请填写真实姓名、手机号和微信号')
+  }
+  if (!agreed.value) {
+    return showToast('请先阅读并同意《制作者协议》')
   }
   submitting.value = true
   try {
@@ -231,6 +238,9 @@ onMounted(() => {
         <van-button type="primary" round block @click="showApplyForm = true">
           立即申请入驻
         </van-button>
+        <div class="agreement-link" @click="showAgreement = true">
+          <van-icon name="label-o" size="14" /> 点击查看《制作者协议》
+        </div>
         <div class="earn-info">
           <h4>制作者收益</h4>
           <ul>
@@ -333,6 +343,77 @@ onMounted(() => {
         </van-field>
         <van-field v-model="form.portfolio_desc" label="作品集说明" type="textarea" rows="2" placeholder="如有作品链接或参考，请填写" />
         <van-field v-model="form.experience" label="相关经验" type="textarea" rows="2" placeholder="填写简历制作相关经验" />
+        <div class="agree-check">
+          <van-checkbox v-model="agreed">我已阅读并同意<span @click.stop="showAgreement = true" class="inline-link">《制作者协议》</span></van-checkbox>
+        </div>
+      </div>
+    </van-dialog>
+
+    <!-- 制作者协议弹窗 -->
+    <van-dialog v-model:show="showAgreement" title="📜 制作者协议" show-confirm-button confirm-button-text="我已阅读并同意"
+      @confirm="() => { agreed = true; showAgreement = false }" style="max-height:80vh; overflow-y:auto; padding:20px 15px;">
+      <div class="agreement-content">
+        <h3>一、加入条件</h3>
+        <ol>
+          <li><strong>实名认证</strong>：提交真实姓名、手机号、微信号</li>
+          <li><strong>保证金门槛</strong>：钱包余额需达到保证金门槛金额（以系统配置为准，默认 ¥20.00）</li>
+          <li><strong>审核通过</strong>：由平台管理员审核通过后正式成为制作者</li>
+        </ol>
+
+        <h3>二、保证金制度</h3>
+        <ol>
+          <li>保证金为制作者接单权限的<strong>门槛阈值</strong>，不代表独立资金额度</li>
+          <li>审核通过后系统将标记保证金门槛状态</li>
+          <li>钱包余额低于保证金门槛时，系统暂停接单权限并提醒充值</li>
+          <li>退出制作者后保证金门槛状态自动清除</li>
+        </ol>
+
+        <h3>三、工作准则</h3>
+        <ol>
+          <li>接单后需在 <strong>24 小时内</strong> 开始制作并上传交付文件</li>
+          <li>不得拒绝已接受的订单，特殊情况需联系管理员协商</li>
+          <li>交付内容需符合用户要求，不得提供低质量或虚假信息</li>
+          <li>不得与用户私下交易或绕过平台收款</li>
+          <li>不得泄露用户个人信息</li>
+        </ol>
+
+        <h3>四、交付规则</h3>
+        <ol>
+          <li>接单后 <strong>24 小时</strong> 为交付周期</li>
+          <li>超时后每 <strong>8 小时</strong> 扣除 <strong>10%</strong> 订单金额作为违约金</li>
+          <li>违约金累计上限为订单金额的 <strong>50%</strong></li>
+          <li>超时 <strong>72 小时</strong> 未交付，订单将被重新发布到众包大厅</li>
+          <li>违约金直接从钱包余额中扣除</li>
+        </ol>
+
+        <h3>五、罚则</h3>
+        <ol>
+          <li>连续 <strong>3 次</strong> 超时交付，平台有权暂停接单权限</li>
+          <li>发现欺诈行为（故意拖延、恶意拒绝交付），平台有权：
+            <ul>
+              <li>强制退出制作者身份</li>
+              <li>将未完成订单重新发布</li>
+              <li>从余额中扣除违约金</li>
+            </ul>
+          </li>
+          <li>严重违规将被永久封禁制作者资格</li>
+        </ol>
+
+        <h3>六、退出条件</h3>
+        <ol>
+          <li><strong>正常退出</strong>：需完成所有进行中的订单（制作中、待验收状态）</li>
+          <li>退出后保证金门槛状态自动清除</li>
+          <li>退出后失去接单权限，已完成的订单不受影响</li>
+          <li><strong>强制退出</strong>：管理员可在特殊情况下强制退出制作者，未完成订单重新发布</li>
+        </ol>
+
+        <h3>七、收益与提现</h3>
+        <ol>
+          <li>每完成一单定制服务，获得订单金额的 <strong>30%</strong> 作为报酬</li>
+          <li>报酬在买家验收通过后进入 7 天冻结期</li>
+          <li>冻结期满后自动转入可用余额</li>
+          <li>可用余额满 ¥50 可申请提现</li>
+        </ol>
       </div>
     </van-dialog>
   </div>
@@ -347,6 +428,8 @@ onMounted(() => {
 
 .no-apply { padding: 10px 0; }
 .no-apply-text { text-align: center; color: #666; font-size: 14px; margin-bottom: 15px; }
+
+.agreement-link { text-align: center; color: #07c160; font-size: 13px; margin: 12px 0; cursor: pointer; }
 
 .earn-info { background: white; border-radius: 8px; padding: 15px; margin-top: 15px; }
 .earn-info h4 { margin: 0 0 10px; font-size: 14px; color: #323233; }
@@ -367,4 +450,46 @@ onMounted(() => {
 
 .apply-form { padding: 10px 0; }
 .field-hint { font-size: 11px; color: #999; }
+
+/* 协议弹窗内容 */
+.agreement-content {
+  font-size: 13px;
+  line-height: 1.8;
+  color: #333;
+  text-align: left;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.agreement-content h3 {
+  font-size: 15px;
+  color: #323233;
+  margin: 16px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #eee;
+}
+.agreement-content ol {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.agreement-content li {
+  margin-bottom: 4px;
+}
+.agreement-content ul {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+.agreement-content strong {
+  color: #323233;
+}
+.agree-check {
+  margin: 12px 0 5px;
+  padding: 10px 5px;
+  background: #f7f8fa;
+  border-radius: 6px;
+}
+.inline-link {
+  color: #07c160;
+  cursor: pointer;
+  font-weight: bold;
+}
 </style>
