@@ -258,7 +258,7 @@ const startPolling = () => {
         showToast({ type: 'success', message: '支付成功！' })
         showCashier.value = false
         // 定制订单不跳下载页
-        if (currentOrder.value.order_type !== 'custom_service') {
+        if (currentOrder.value.type !== 'custom_service') {
           window.location.href = `/api/v1/orders/download/${currentOrder.value.order_no}`
         }
       }
@@ -279,7 +279,7 @@ const executeMockPay = async () => {
     await request.post('/payments/mock-callback', { order_no: currentOrder.value.order_no })
     showCashier.value = false
     // 定制订单支付后等待制作者接单，不跳下载页
-    if (currentOrder.value.order_type === 'custom_service') {
+    if (currentOrder.value.type === 'custom_service') {
       showToast({ type: 'success', message: '支付成功，等待制作者接单' })
     } else {
       showToast({ type: 'success', message: '支付成功，开始下载' })
