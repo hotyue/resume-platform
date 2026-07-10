@@ -61,6 +61,60 @@ const refunds = ref([])
 const refundStatusFilter = ref('pending')
 const refundLoading = ref(false)
 
+// ========== 审计日志 ==========
+const auditLogs = ref([])
+const auditTotal = ref(0)
+const auditPage = ref(1)
+const auditActionFilter = ref('')
+const auditUserIdFilter = ref('')
+const auditLoading = ref(false)
+const auditActions = [
+  { label: '全部', key: '' },
+  { label: '违约金扣除', key: 'penalty_deducted' },
+  { label: '订单重新发布', key: 'order_republished' },
+  { label: '正常退出', key: 'creator_exit_success' },
+  { label: '强制退出', key: 'creator_exit_forced' },
+  { label: '周期重置', key: 'cycle_reset' },
+]
+
+const fetchAuditLogs = async () => {
+  auditLoading.value = true
+  try {
+    const params = { page: auditPage.value, page_size: 50 }
+    if (auditActionFilter.value) params.action = auditActionFilter.value
+    if (auditUserIdFilter.value) params.user_id = auditUserIdFilter.value
+    const res = await request.get('/admin/audit-logs', { params })
+    auditLogs.value = res.data.logs || []
+    auditTotal.value = res.data.total || 0
+  } catch (e) {
+    showToast('获取审计日志失败')
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+const auditActionLabel = (a) => {
+  const map = {
+    penalty_deducted: '违约金扣除',
+    order_republished: '订单重新发布',
+    creator_exit_success: '正常退出',
+    creator_exit_forced: '强制退出',
+    cycle_reset: '周期重置',
+  }
+  return map[a] || a
+}
+
+const auditActionType = (a) => {
+  const map = {
+    penalty_deducted: 'danger',
+    order_republished: 'warning',
+    creator_exit_success: 'success',
+    creator_exit_forced: 'danger',
+    cycle_reset: 'primary',
+  }
+  return map[a] || 'default'
+}
+
 const fetchRefunds = async () => {
   refundLoading.value = true
   try {
@@ -405,6 +459,10 @@ const withdrawStatusType = (s) => {
 
 const onAdminTabChange = (index) => {
   activeTab.value = index
+  // 按需加载审计日志
+  if (index === 5 && auditLogs.value.length === 0) {
+    fetchAuditLogs()
+  }
 }
 
 onMounted(() => {
@@ -661,7 +719,37 @@ onMounted(() => {
         </div>
       </van-tab>
 
-      <!-- Tab 5: 系统设置 -->
+      <!-- Tab 5: 审计日志 -->
+      <van-tab title="📝 审计日志">
+        <div class="filter-row" style="margin-bottom:12px">
+          <van-field v-model="auditUserIdFilter" placeholder="按用户ID筛选" clearable type="number" @blur="auditPage = 1; fetchAuditLogs()" />
+          <div class="status-chips">
+            <van-tag v-for="a in auditActions" :key="a.key"
+              :type="auditActionFilter === a.key ? 'primary' : 'default'"
+              plain size="medium" style="margin:4px" @click="auditActionFilter = a.key; auditPage = 1; fetchAuditLogs()">
+              {{ a.label }}
+            </van-tag>
+          </div>
+        </div>
+        <div v-if="auditLoading" class="loading">加载中...</div>
+        <div v-else-if="auditLogs.length === 0" class="empty">暂无审计日志</div>
+        <div v-else class="audit-list">
+          <div v-for="log in auditLogs" :key="log.id" class="audit-card">
+            <div class="audit-header">
+              <van-tag :type="auditActionType(log.action)" round size="small">{{ auditActionLabel(log.action) }}</van-tag>
+              <span class="audit-time">{{ log.created_at }}</span>
+            </div>
+            <div class="audit-body">
+              <span>用户ID: {{ log.user_id }}</span>
+              <span v-if="log.order_no">订单: {{ log.order_no }}</span>
+              <span v-if="log.penalty_amount > 0" class="audit-penalty">违约金: ¥{{ log.penalty_amount.toFixed(2) }}</span>
+            </div>
+            <div class="audit-detail">{{ log.detail }}</div>
+          </div>
+        </div>
+      </van-tab>
+
+      <!-- Tab 6: 系统设置 -->
       <van-tab title="⚙️ 系统设置">
         <!-- 金额配置 -->
         <div class="settings-section">
@@ -909,4 +997,13 @@ onMounted(() => {
 /* 配置编辑弹窗 */
 .config-edit-form { padding: 15px 0; }
 .config-edit-label { font-size: 14px; font-weight: bold; color: #333; margin-bottom: 10px; }
+
+/* 审计日志 */
+.audit-list { padding: 5px 0; }
+.audit-card { background: white; border-radius: 10px; padding: 12px 15px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.audit-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.audit-time { font-size: 12px; color: #999; }
+.audit-body { display: flex; gap: 15px; font-size: 12px; color: #666; margin-bottom: 4px; }
+.audit-penalty { color: #ee0a24; font-weight: bold; }
+.audit-detail { font-size: 12px; color: #999; line-height: 1.5; }
 </style>

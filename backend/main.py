@@ -934,6 +934,45 @@ async def admin_update_user(
     return {"id": user.id, "role": user.role, "wallet_balance": round(user.wallet_balance, 2)}
 
 
+
+
+
+
+# ========== 审计日志 ==========
+
+@app.get("/api/v1/admin/audit-logs")
+async def admin_audit_logs(
+    user_id: Optional[int] = Query(None),
+    order_no: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    page: int = Query(1),
+    page_size: int = Query(50),
+    db: Session = Depends(get_db),
+    admin_user: dict = Depends(require_admin)
+):
+    query = db.query(m.CreatorAuditLog)
+    if user_id:
+        query = query.filter(m.CreatorAuditLog.user_id == user_id)
+    if order_no:
+        query = query.filter(m.CreatorAuditLog.order_no == order_no)
+    if action:
+        query = query.filter(m.CreatorAuditLog.action == action)
+    total = query.count()
+    logs = query.order_by(m.CreatorAuditLog.created_at.desc()) \
+        .offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "logs": [{
+            "id": log.id,
+            "user_id": log.user_id,
+            "order_no": log.order_no,
+            "action": log.action,
+            "detail": log.detail,
+            "penalty_amount": log.penalty_amount,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        } for log in logs],
+        "total": total,
+    }
+
 @app.get("/api/v1/admin/dashboard")
 async def admin_dashboard(db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     now = datetime.now()
