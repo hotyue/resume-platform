@@ -13,6 +13,14 @@ const applications = ref([])
 const appStatus = ref('pending')
 const appLoading = ref(false)
 
+const onAppTabChange = (index) => {
+  const tab = appTabs[index]
+  if (tab) {
+    appStatus.value = tab.key
+    fetchApplications(tab.key)
+  }
+}
+
 // ========== 订单管理 ==========
 const orders = ref([])
 const orderTotal = ref(0)
@@ -508,13 +516,12 @@ onMounted(() => {
       </van-tab>
 
       <!-- Tab 1: 入驻审核 -->
-      <van-tab title="📋 入驻审核">
-        <van-tabs :swipeable="false" color="#1989fa">
-          <van-tab v-for="t in appTabs" :key="t.key" :title="t.label">
-            <div @click="appStatus = t.key; fetchApplications(t.key)" style="cursor:pointer"></div>
-            <div v-if="appLoading" class="loading">加载中...</div>
-            <div v-else-if="applications.length === 0" class="empty">暂无记录</div>
-            <div v-else class="app-list">
+       <van-tab title="📋 入驻审核">
+         <van-tabs :swipeable="false" color="#1989fa" @change="onAppTabChange">
+           <van-tab v-for="t in appTabs" :key="t.key" :title="t.label">
+             <div v-if="appLoading" class="loading">加载中...</div>
+             <div v-else-if="applications.length === 0" class="empty">暂无记录</div>
+             <div v-else class="app-list">
               <div v-for="app in applications" :key="app.id" class="app-card">
                 <div class="app-header">
                   <span class="app-name">{{ app.real_name }}</span>

@@ -112,6 +112,11 @@ class ReviewWithdrawReq(BaseModel):
     status: str
     remark: str = ""
 
+class ReviewApplicationReq(BaseModel):
+    request_id: int
+    status: str
+    remark: str = ""
+
 class UpdateCommissionConfigReq(BaseModel):
     level: int
     rate: float
@@ -491,13 +496,15 @@ async def admin_applications(
     return {"total": total, "page": page, "page_size": page_size, "applications": [{
         "id": a.id, "user_id": a.user_id, "username": a.user.username,
         "real_name": a.real_name, "phone": a.phone, "wechat": a.wechat,
-        "specialty": a.specialty, "status": a.status, "created_at": str(a.created_at),
+        "specialty": a.specialty, "portfolio_desc": a.portfolio_desc,
+        "experience": a.experience, "status": a.status, "created_at": str(a.created_at),
+        "review_remark": a.review_remark, "reviewed_at": str(a.reviewed_at) if a.reviewed_at else None,
     } for a in results]}
 
 
 @app.post("/api/v1/admin/applications/review")
 async def review_application(
-    req: ReviewWithdrawReq, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
+    req: ReviewApplicationReq, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     if req.status not in ("approved", "rejected"):
         raise HTTPException(status_code=400, detail="状态必须是 approved 或 rejected")
     a = db.query(m.CreatorApplication).filter(m.CreatorApplication.id == req.request_id).first()
