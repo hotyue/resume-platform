@@ -238,6 +238,81 @@ def reset_delivery_cycle(order, db: Session):
               f"交付周期重置，重新计时24小时")
 
 
+def check_delivery_penalties(db: Session):
+    """检查超时订单并扣除违约金（每8h扣10%，上限50%）"""
+    now = datetime.now()
+    in_progress_orders = db.query(m.Order).filter(
+        m.Order.status == "in_progress",
+        m.Order.claimed_at != None,
+        m.Order.creator_id != None,
+    ).all()
+
+    results = []
+    for order in in_progress_orders:
+        if not order.claimed_at:
+            continue
+
+        elapsed = now - order.claimed_at
+        elapsed_hours = elapsed.total_seconds() / 3600
+
+        # 超过24小时才开始扣违约金
+        if elapsed_hours < 24:
+            continue
+
+        # 计算应该扣几个8h周期
+        overdue_hours = elapsed_hours - 24
+        expected_penalty_count = int(overdue_hours / 8) + 1
+
+        # 违约金上限50%（即5个周期）
+        max_penalty_count = 5
+        expected_penalty_count = min(expected_penalty_count, max_penalty_count)
+
+        # 是否需要补扣
+        current_count = order.penalty_count or 0
+        if expected_penalty_count > current_count:
+            # 计算新增违约金
+            new_penalties = expected_penalty_count - current_count
+            penalty_per_unit = round(order.amount * 0.10, 2)  # 每周期10%
+            total_new_penalty = round(penalty_per_unit * new_penalties, 2)
+
+            # 从制作者余额扣除
+            creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
+            if creator:
+                # 扣除保证金（优先）和余额
+                deduct_from_deposit = min(total_new_penalty, creator.deposit_frozen)
+                remaining = total_new_penalty - deduct_from_deposit
+                creator.deposit_frozen -= deduct_from_deposit
+
+                if remaining > 0 and creator.wallet_balance >= remaining:
+                    creator.wallet_balance -= remaining
+                elif remaining > 0:
+                    # 余额不够，扣光
+                    creator.wallet_balance = 0
+                    remaining -= (total_new_penalty - deduct_from_deposit)
+                    # 记录无法全额扣除
+
+            order.penalty_count = expected_penalty_count
+            order.penalty_deducted = round((order.penalty_deducted or 0) + total_new_penalty, 2)
+
+            # 记录审计日志
+            audit_log(db, order.creator_id, order.order_no, "penalty_deducted",
+                      f"超时违约金：已逾期 {elapsed_hours:.1f}h，第 {expected_penalty_count} 个周期，"
+                      f"扣除 ¥{total_new_penalty}（累计 ¥{order.penalty_deducted}）",
+                      penalty_amount=total_new_penalty)
+
+            results.append({
+                "order_no": order.order_no,
+                "creator_id": order.creator_id,
+                "penalty": total_new_penalty,
+                "total_deducted": order.penalty_deducted,
+            })
+
+    if results:
+        db.commit()
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # 分销链
 # ---------------------------------------------------------------------------
