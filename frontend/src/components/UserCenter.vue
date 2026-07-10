@@ -231,11 +231,16 @@ const copyInviteCode = () => {
 }
 
 const submitWithdraw = async () => {
-  if (!withdrawAmount.value || parseFloat(withdrawAmount.value) <= 0) {
+  const amount = parseFloat(withdrawAmount.value)
+  if (!withdrawAmount.value || isNaN(amount) || amount <= 0) {
     return showToast('请输入有效的提现金额')
   }
-  if (parseFloat(withdrawAmount.value) < 50) {
+  if (amount < 50) {
     return showToast('最低提现金额为50元')
+  }
+  const avail = userInfo.value?.available_balance || 0
+  if (amount > avail) {
+    return showToast(`可提现额度不足（当前可提: ¥${avail.toFixed(2)}）`)
   }
   if (!paymentInfo.value) {
     return showToast('请输入收款账号')
@@ -243,7 +248,7 @@ const submitWithdraw = async () => {
   try {
     showLoadingToast({ message: '提交中...', forbidClick: true })
     await request.post('/user/withdraw', {
-      amount: parseFloat(withdrawAmount.value),
+      amount,
       payment_info: paymentInfo.value,
     })
     closeToast()
@@ -258,6 +263,10 @@ const submitWithdraw = async () => {
     showToast(e.response?.data?.detail || '提现申请提交失败')
   }
 }
+
+const withdrawAvailable = computed(() => {
+  return (userInfo.value?.available_balance || 0).toFixed(2)
+})
 
 const teamCount = computed(() => {
   if (!teamData.value) return 0
@@ -308,14 +317,16 @@ onMounted(() => {
             💰 充值
           </van-button>
           <van-button size="small" type="primary" round @click="showWithdraw = true"
-            :disabled="(userInfo.wallet_balance || 0) < 50">
+            :disabled="(userInfo.available_balance || 0) < 50">
             提现
           </van-button>
           <van-button size="small" round plain @click="copyInviteLink">
             邀请
           </van-button>
         </div>
-        <div class="tips" v-if="(userInfo.wallet_balance || 0) < 50">满50元可提现</div>
+        <div class="tips" v-if="(userInfo.available_balance || 0) < 50">
+          可提现 ¥{{ withdrawAvailable }}（满50元可提，保证金不可提）
+        </div>
       </div>
 
       <!-- 三级分佣说明 -->
@@ -473,9 +484,13 @@ onMounted(() => {
     <!-- 提现弹窗 -->
     <van-dialog v-model:show="showWithdraw" title="佣金提现申请" show-cancel-button @confirm="submitWithdraw">
       <div class="withdraw-form">
-        <van-field v-model="withdrawAmount" type="number" label="提现金额" placeholder="请输入提现金额" />
+        <div class="withdraw-info">
+          <p>可提现额度：<strong>¥{{ withdrawAvailable }}</strong></p>
+          <p class="withdraw-hint">（余额 ¥{{ (userInfo.wallet_balance || 0).toFixed(2) }} - 冻结保证金 ¥{{ (userInfo.deposit_frozen || 0).toFixed(2) }}）</p>
+        </div>
+        <van-field v-model="withdrawAmount" type="digit" label="提现金额" placeholder="请输入提现金额" />
         <van-field v-model="paymentInfo" label="收款账号" placeholder="请输入支付宝账号/微信号" />
-        <p class="form-tips">注：管理员将在48小时内人工审核并转账</p>
+        <p class="form-tips">注：最低提现50元，管理员将在48小时内人工审核并转账</p>
       </div>
     </van-dialog>
 
@@ -572,6 +587,9 @@ onMounted(() => {
 
 /* 提现 */
 .withdraw-form { padding: 15px 0; }
+.withdraw-info { margin-bottom: 10px; padding: 10px; background: #f7f8fa; border-radius: 6px; }
+.withdraw-info p { margin: 4px 0; font-size: 13px; }
+.withdraw-hint { font-size: 11px; color: #999; }
 .form-tips { font-size: 12px; color: #999; text-align: center; margin-top: 10px; }
 
 /* 充值 */
