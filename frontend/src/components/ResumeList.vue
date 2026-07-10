@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { showToast, showLoadingToast, closeToast, ImagePreview } from 'vant'
+import { showToast, showLoadingToast, closeToast } from 'vant'
 import request from '../api/request.js'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
@@ -41,6 +41,10 @@ const categories = [
 ]
 const activeCategory = ref('')
 const searchKeyword = ref('')
+
+// 图片全屏预览
+const showPreview = ref(false)
+const previewUrl = ref('')
 
 // ================= 懒加载 (IntersectionObserver) =================
 let observer = null
@@ -141,8 +145,8 @@ const getImageUrl = (relPath) => `/static/${encodeURI(relPath.replace(/\\/g, '/'
 
 // ================= 图片全屏预览 =================
 const previewImage = (relPath) => {
-  const url = getImageUrl(relPath)
-  ImagePreview([{ url }])
+  previewUrl.value = getImageUrl(relPath)
+  showPreview.value = true
 }
 
 // ================= 滚动监听（分页触发） =================
@@ -337,6 +341,9 @@ onBeforeUnmount(() => {
         暂无模板
       </div>
     </van-pull-refresh>
+
+    <!-- 图片全屏预览 -->
+    <van-image-preview v-model:show="showPreview" :images="[previewUrl]" @close="showPreview = false" />
 
     <van-dialog v-model:show="showCustomForm" title="填写代做需求" show-cancel-button @confirm="submitCustomOrder">
       <van-field v-model="customReqs" type="textarea" rows="3" placeholder="请填写您的学校、专业、求职意向及内容重点..." />
