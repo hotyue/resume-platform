@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { showToast, showLoadingToast, closeToast } from 'vant'
+import { showToast, showLoadingToast, closeToast, ImagePreview } from 'vant'
 import request from '../api/request.js'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
@@ -138,6 +138,12 @@ const doSearch = () => {
 }
 
 const getImageUrl = (relPath) => `/static/${encodeURI(relPath.replace(/\\/g, '/'))}`
+
+// ================= 图片全屏预览 =================
+const previewImage = (relPath) => {
+  const url = getImageUrl(relPath)
+  ImagePreview([{ url }])
+}
 
 // ================= 滚动监听（分页触发） =================
 const handleScroll = () => {
@@ -298,7 +304,7 @@ onBeforeUnmount(() => {
       <!-- 模板列表（CSS Grid 自适应多栏） -->
       <div class="template-grid">
         <div class="template-card" v-for="item in templates" :key="item.id">
-          <div class="image-wrapper">
+          <div class="image-wrapper" @click="previewImage(item.jpg_path)">
             <!-- 懒加载图片（先渲染） -->
             <img
               :data-src="getImageUrl(item.jpg_path)"
@@ -430,6 +436,7 @@ onBeforeUnmount(() => {
   position: relative;
   background: #f2f3f5;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 /* 骨架屏占位（覆盖在图片上） */
