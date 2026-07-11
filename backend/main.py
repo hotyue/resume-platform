@@ -84,6 +84,7 @@ class RegisterReq(BaseModel):
     username: str
     password: str
     ref_user_id: Optional[int] = None
+    invite_code: Optional[str] = None
 
 class CreateOrderReq(BaseModel):
     template_id: int
@@ -364,6 +365,17 @@ def check_delivery_penalties(db: Session):
 # ---------------------------------------------------------------------------
 # 分销链
 # ---------------------------------------------------------------------------
+def _update_team_size(user_id: int, db: Session):
+    """递增用户及其所有上级的 team_size"""
+    user = db.query(m.User).filter(m.User.id == user_id).first()
+    if not user:
+        return
+    user.team_size = (user.team_size or 0) + 1
+    # 递归递增上级链
+    if user.parent_id:
+        _update_team_size(user.parent_id, db)
+
+
 def get_ref_chain(ref_user_id: int, db: Session) -> list:
     configs = load_all_configs(db)
     rates = [configs["level1_rate"], configs["level2_rate"], configs["level3_rate"]]
@@ -469,10 +481,39 @@ async def register(req: RegisterReq, db: Session = Depends(get_db)):
     if db.query(m.User).filter(m.User.username == req.username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
     user = m.User(username=req.username, password_hash=auth.hash_password(req.password))
-    if req.ref_user_id:
+
+    # 解析推广关系：优先 invite_code，兼容 ref_user_id
+    parent_id = None
+    if req.invite_code:
+        code = req.invite_code.strip().upper()
+        # 格式 1: INV000006 → 提取 user_id
+        if code.startswith("INV"):
+            try:
+                parent_id = int(code[3:])
+            except ValueError:
+                pass
+        # 格式 2: 直接用户名（如 hotyue）
+        if not parent_id:
+            parent = db.query(m.User).filter(m.User.username == req.invite_code.strip()).first()
+            if parent:
+                parent_id = parent.id
+        # 格式 3: 查 invite_code
+        parent = db.query(m.User).filter(m.User.id == parent_id).first() if parent_id else None
+        if parent:
+            user.parent_id = parent.id
+            # 递增 team_size（含上级链）
+            _update_team_size(parent.id, db)
+            # 自动晋升为推广员
+            if parent.role not in ("admin",):
+                parent.role = "promoter"
+    elif req.ref_user_id:
         parent = db.query(m.User).filter(m.User.id == req.ref_user_id).first()
         if parent:
             user.parent_id = parent.id
+            _update_team_size(parent.id, db)
+            if parent.role not in ("admin",):
+                parent.role = "promoter"
+
     db.add(user)
     db.commit()
     token = auth.create_token(user.id, user.username, user.role)
@@ -1103,9 +1144,17 @@ async def create_order(
     configs = load_all_configs(db)
     amount = configs["custom_price"] if is_custom_order(req.order_type) else configs["download_price"]
     order_no = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+
+    # 自动继承用户推广关系：优先使用 req.ref_user_id，否则从用户 parent_id 获取
+    ref_user_id = req.ref_user_id
+    if not ref_user_id:
+        user = db.query(m.User).filter(m.User.id == current_user["id"]).first()
+        if user and user.parent_id:
+            ref_user_id = user.parent_id
+
     order = m.Order(
         order_no=order_no, user_id=current_user["id"], template_id=template.id,
-        amount=amount, ref_user_id=req.ref_user_id, order_type=req.order_type,
+        amount=amount, ref_user_id=ref_user_id, order_type=req.order_type,
         custom_requirements=req.custom_requirements,
     )
     db.add(order)

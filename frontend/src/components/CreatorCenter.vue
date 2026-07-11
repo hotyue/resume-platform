@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { showToast, showSuccessToast, showConfirmDialog, showDialog } from 'vant'
 import request from '../api/request.js'
 import { useAuthStore } from '../stores/auth'
@@ -238,6 +238,12 @@ const onOrderTabChange = (index) => {
   fetchOrders()
 }
 
+// Watch activeTab changes to ensure data refreshes on every switch
+watch(activeTab, (index) => {
+  orderTab.value = index === 0 ? 'pending' : 'mine'
+  fetchOrders()
+})
+
 onMounted(() => {
   fetchApplicationStatus()
   fetchOrders()
@@ -308,7 +314,7 @@ onMounted(() => {
 
     <!-- 已通过 → 显示订单管理 -->
     <div v-if="appStatus === 'approved'" class="orders-section">
-      <van-tabs @change="onOrderTabChange" color="#07c160">
+      <van-tabs v-model:active="activeTab" @change="onOrderTabChange" color="#07c160">
         <van-tab title="待接单">
           <div v-if="loadingOrders" class="loading">加载中...</div>
           <div v-else-if="orders.length === 0" class="empty">暂无待接订单</div>

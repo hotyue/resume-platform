@@ -35,7 +35,7 @@ const doRegister = async () => {
       password: password.value,
     }
     if (inviteCode.value) {
-      payload.ref_code = inviteCode.value
+      payload.invite_code = inviteCode.value
     }
     const res = await request.post('/auth/register', payload)
     closeToast()
