@@ -411,6 +411,7 @@ def distribute_commission(order: m.Order, db: Session):
             user = db.query(m.User).filter(m.User.id == user_id).first()
             if user:
                 user.wallet_balance += commission
+                user.referral_commission += commission
             rec = m.CommissionRecord(
                 order_no=order.order_no, user_id=user_id,
                 level=level, amount=commission, rate=rate,
@@ -429,6 +430,10 @@ def settle_custom_commission(order: m.Order, db: Session):
     pending_records = []
     if order.creator_id:
         creator_amt = round(amount * configs["creator_rate"], 2)
+        # 实时累加制作分佣统计
+        creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
+        if creator:
+            creator.making_commission += creator_amt
         pending_records.append(m.CommissionPending(
             order_no=order.order_no, user_id=order.creator_id,
             role_type="creator", amount=creator_amt, rate=configs["creator_rate"],
@@ -446,6 +451,10 @@ def settle_custom_commission(order: m.Order, db: Session):
             commission = round(amount * rate, 2)
             if commission <= 0:
                 continue
+            # 实时累加推广分佣统计
+            user = db.query(m.User).filter(m.User.id == user_id).first()
+            if user:
+                user.referral_commission += commission
             pending_records.append(m.CommissionPending(
                 order_no=order.order_no, user_id=user_id,
                 role_type=f"level{level}", amount=commission, rate=rate,
@@ -552,6 +561,8 @@ async def get_me(current_user: dict = Depends(get_current_user), db: Session = D
         "alipay_account": user.alipay_account,
         "wechat_account": user.wechat_account,
         "total_withdrawn": round(user.total_withdrawn, 2),
+        "referral_commission": round(user.referral_commission, 2),
+        "making_commission": round(user.making_commission, 2),
         "team_size": user.team_size,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
@@ -1714,6 +1725,8 @@ async def get_user_stats(user_id: int, db: Session = Depends(get_db)):
     return {
         "user_id": user_id,
         "total_commission": total_commission,
+        "referral_commission": round(user.referral_commission, 2),
+        "making_commission": round(user.making_commission, 2),
         "team_count": team_count,
         "order_count": order_count,
     }

@@ -363,8 +363,12 @@ onMounted(() => {
             <div class="stat-lbl">保证金</div>
           </div>
           <div class="stat-item">
-            <div class="stat-val">¥{{ stats?.total_commission?.toFixed(2) || '0.00' }}</div>
-            <div class="stat-lbl">累计收益</div>
+            <div class="stat-val">¥{{ (userInfo.referral_commission || 0).toFixed(2) }}</div>
+            <div class="stat-lbl">推广分佣</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-val">¥{{ (userInfo.making_commission || 0).toFixed(2) }}</div>
+            <div class="stat-lbl">制作分佣</div>
           </div>
         </div>
         <div class="balance-actions">

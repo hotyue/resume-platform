@@ -22,6 +22,9 @@ class User(Base):
     wechat_account = Column(String(100), nullable=True)
     total_withdrawn = Column(Float, default=0.0)
     frozen_commission = Column(Float, default=0.0)
+    # 分佣统计（只读累加，不参与扣减）
+    referral_commission = Column(Float, default=0.0)    # 推广分佣累计
+    making_commission = Column(Float, default=0.0)       # 制作分佣累计
     created_at = Column(DateTime, default=datetime.now)
     # 关系
     children = relationship("User", backref="parent", remote_side=[id])
