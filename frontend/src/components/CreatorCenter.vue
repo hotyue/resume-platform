@@ -4,11 +4,18 @@ import { showToast, showSuccessToast, showConfirmDialog, showDialog } from 'vant
 import request from '../api/request.js'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
+import DeliveryDialog from './DeliveryDialog.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 
 const activeTab = ref(0)
+
+// 交付弹窗
+const showDeliveryDialog = ref(false)
+const deliveringOrderNo = ref('')
+const deliveringOrderAmount = ref(0)
+const deliveringOrderName = ref('')
 
 // 申请相关
 const hasApplied = ref(false)
@@ -183,47 +190,15 @@ const handleTakeOrder = async (orderNo) => {
   }
 }
 
-const handleDeliver = async (orderNo) => {
-  let fileUrl = ''
-  let remark = ''
-  
-  showDialog({
-    title: '交付订单',
-    message: '请填写交付文件路径',
-    showInput: true,
-    inputValue: { type: 'textarea', placeholder: '文件路径 (如: /assets/deliveries/xxx.doc)' },
-  })
-    .then(async ({ value }) => {
-      fileUrl = value || ''
-      showDialog({
-        title: '交付备注（可选）',
-        message: '填写给买家的备注',
-        showInput: true,
-      })
-        .then(async ({ value }) => {
-          remark = value || ''
-          showConfirmDialog({
-            title: '确认交付',
-            message: '交付后等待买家验收，验收通过后佣金进入7天冻结期',
-          })
-            .then(async () => {
-              try {
-                await request.post('/creator/deliver', {
-                  order_no: orderNo,
-                  file_url: fileUrl,
-                  remark: remark,
-                })
-                showSuccessToast('已交付，等待买家验收')
-                await fetchOrders()
-              } catch (e) {
-                showToast(e.response?.data?.detail || '交付失败')
-              }
-            })
-            .catch(() => {})
-        })
-        .catch(() => {})
-    })
-    .catch(() => {})
+const handleDeliver = (orderNo, orderAmount, orderName) => {
+  deliveringOrderNo.value = orderNo
+  deliveringOrderAmount.value = orderAmount || 0
+  deliveringOrderName.value = orderName || ''
+  showDeliveryDialog.value = true
+}
+
+const onDeliverySuccess = () => {
+  fetchOrders()
 }
 
 const statusLabel = (s) => {
@@ -364,10 +339,10 @@ onMounted(() => {
               <div class="order-req">{{ o.requirements }}</div>
               <div v-if="o.status === 'delivered'" class="freeze-info">⏳ 等待买家验收（7天自动验收）</div>
               <div v-if="o.status === 'accepted'" class="accepted-info">✅ 验收通过，佣金冻结中</div>
-              <van-button v-if="o.status === 'in_progress'" type="primary" size="small" round @click="handleDeliver(o.order_no)">
+              <van-button v-if="o.status === 'in_progress'" type="primary" size="small" round @click="handleDeliver(o.order_no, o.amount, o.template_name)">
                 提交交付
               </van-button>
-              <van-button v-if="o.status === 'rejected'" type="warning" size="small" round plain @click="handleDeliver(o.order_no)">
+              <van-button v-if="o.status === 'rejected'" type="warning" size="small" round plain @click="handleDeliver(o.order_no, o.amount, o.template_name)">
                 重新交付
               </van-button>
             </div>
@@ -463,6 +438,15 @@ onMounted(() => {
         </ol>
       </div>
     </van-dialog>
+
+    <!-- 交付弹窗 -->
+    <DeliveryDialog
+      v-model:show="showDeliveryDialog"
+      :order-no="deliveringOrderNo"
+      :order-amount="deliveringOrderAmount"
+      :order-name="deliveringOrderName"
+      @success="onDeliverySuccess"
+    />
   </div>
 </template>
 

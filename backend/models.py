@@ -133,11 +133,19 @@ class WithdrawRequest(Base):
 
 
 class Delivery(Base):
-    """定制订单交付记录"""
+    """定制订单交付记录 — 双文件（PDF + Word）"""
     __tablename__ = "deliveries"
     id = Column(Integer, primary_key=True, index=True)
     order_no = Column(String(32), nullable=False, index=True)
-    file_url = Column(String(500), nullable=False)
+    # 旧字段（兼容已有数据）
+    file_url = Column(String(500), nullable=True)
+    # S3 存储字段
+    pdf_key = Column(String(500), nullable=True)       # PDF 在 S3 中的路径
+    word_key = Column(String(500), nullable=True)      # Word 在 S3 中的路径
+    pdf_filename = Column(String(200), nullable=True)   # PDF 原始文件名
+    word_filename = Column(String(200), nullable=True)  # Word 原始文件名
+    pdf_size = Column(Integer, nullable=True)           # PDF 文件大小（字节）
+    word_size = Column(Integer, nullable=True)          # Word 文件大小（字节）
     remark = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.now)
 

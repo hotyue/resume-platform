@@ -110,6 +110,39 @@ const openReview = (order) => {
   showReviewDialog.value = true
 }
 
+// 预览交付文件
+const previewDelivery = async (order, fileType) => {
+  try {
+    const url = `/api/v1/orders/${order.order_no}/delivery-url?type=${fileType}`
+    const token = localStorage.getItem('token')
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || '下载失败')
+    }
+    const blob = await res.blob()
+    const disposition = res.headers.get('content-disposition') || ''
+    // 优先用后端返回的文件名（RFC 5987 编码需要解码）
+    let filename = `${order.order_no}.${fileType === 'word' ? 'docx' : 'pdf'}`
+    const match = disposition.match(/filename\*?=UTF-8''(.+)/)
+    if (match) {
+      filename = decodeURIComponent(match[1])
+    } else {
+      const match2 = disposition.match(/filename="?(.+)"?$/)
+      if (match2) filename = match2[1]
+    }
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(a.href)
+  } catch (e) {
+    showToast(e.message || '下载失败')
+  }
+}
+
 const submitReview = async () => {
   reviewing.value = true
   try {
@@ -455,6 +488,11 @@ onMounted(() => {
                 <p class="co-req">{{ o.custom_requirements || '暂无需求描述' }}</p>
                 <p class="co-amount">¥{{ o.amount.toFixed(2) }}</p>
                 <p v-if="o.status === 'delivered'" class="co-frozen">⏳ 等待验收（7天自动通过）</p>
+                <!-- 预览交付文件 -->
+                <div v-if="['delivered', 'accepted'].includes(o.status)" class="co-preview">
+                  <van-button size="mini" plain type="primary" @click="previewDelivery(o, 'pdf')">📄 预览PDF</van-button>
+                  <van-button size="mini" plain type="primary" @click="previewDelivery(o, 'word')">📝 预览Word</van-button>
+                </div>
               </div>
               <div class="co-footer">
                 <div class="co-actions-row" v-if="o.status === 'delivered'">
@@ -619,6 +657,7 @@ onMounted(() => {
 .co-req { color: #666; font-size: 12px; line-height: 1.4; }
 .co-amount { color: #ee0a24; font-weight: bold; font-size: 15px; }
 .co-frozen { font-size: 11px; color: #ff976a; margin-top: 6px; padding: 4px 8px; background: #fffbe6; border-radius: 4px; text-align: center; }
+.co-preview { display: flex; gap: 8px; margin-top: 8px; }
 .co-footer { margin-top: 10px; }
 
 /* 验收弹窗 */

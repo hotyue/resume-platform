@@ -121,7 +121,7 @@ const fetchRefunds = async () => {
     let url = `/admin/refunds`
     if (refundStatusFilter.value) url += `?status=${refundStatusFilter.value}`
     const res = await request.get(url)
-    refunds.value = res.data
+    refunds.value = res.data.refunds || []
   } catch (e) {
     showToast('获取退款列表失败')
   } finally {
@@ -137,9 +137,9 @@ const handleRefundReview = async (r, action) => {
   }).then(async () => {
     try {
       await request.post('/admin/refunds/review', {
-        request_id: r.id,
+        refund_id: r.id,
         status: action,
-        admin_remark: action === 'approved' ? '审核通过' : '不符合退款条件',
+        remark: action === 'approved' ? '审核通过' : '不符合退款条件',
       })
       showSuccessToast(`${label}成功`)
       await fetchRefunds()

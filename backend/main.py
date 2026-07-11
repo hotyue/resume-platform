@@ -7,12 +7,13 @@ import asyncio
 import logging
 import hashlib
 import hmac
+import io
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, UploadFile, File, Form
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
@@ -1221,22 +1222,193 @@ async def take_order(
     return {"status": "success", "message": "抢单成功"}
 
 
+# 文件校验常量
+ALLOWED_PDF_EXTENSIONS = {".pdf"}
+ALLOWED_WORD_EXTENSIONS = {".doc", ".docx"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+PDF_CONTENT_TYPES = {"application/pdf"}
+WORD_CONTENT_TYPES = {
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+def validate_file_extension(filename: str, file_type: str) -> bool:
+    """校验文件扩展名是否符合要求"""
+    ext = os.path.splitext(filename)[1].lower()
+    if file_type == "pdf":
+        return ext in ALLOWED_PDF_EXTENSIONS
+    elif file_type == "word":
+        return ext in ALLOWED_WORD_EXTENSIONS
+    return False
+
+
+def get_file_content_type(filename: str) -> str:
+    """根据扩展名返回 MIME 类型"""
+    ext = os.path.splitext(filename)[1].lower()
+    content_types = {
+        ".pdf": "application/pdf",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+    return content_types.get(ext, "application/octet-stream")
+
+
 @app.post("/api/v1/creator/deliver")
 async def deliver_order(
-    req: DeliverReq, db: Session = Depends(get_db), current_user: dict = Depends(require_creator)):
+    order_no: str = Form(...),
+    pdf_file: UploadFile = File(...),
+    word_file: UploadFile = File(...),
+    remark: str = Form(""),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_creator),
+):
+    """交付订单 — 双文件上传（PDF + Word）"""
+    # 1. 查找订单
     order = db.query(m.Order).filter(
-        m.Order.order_no == req.order_no, m.Order.creator_id == current_user["id"],
-        m.Order.status == "in_progress").first()
+        m.Order.order_no == order_no,
+        m.Order.creator_id == current_user["id"],
+        m.Order.status == "in_progress",
+    ).first()
     if not order:
         raise HTTPException(status_code=400, detail="订单异常或无权操作")
-    db.add(m.Delivery(order_no=req.order_no, file_url=req.file_url, remark=req.remark))
+
+    # 2. 校验 PDF 文件
+    if not pdf_file.filename or not validate_file_extension(pdf_file.filename, "pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"PDF 文件格式不正确，仅支持 .pdf（当前: {pdf_file.filename}）",
+        )
+
+    # 3. 校验 Word 文件
+    if not word_file.filename or not validate_file_extension(word_file.filename, "word"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Word 文件格式不正确，仅支持 .doc / .docx（当前: {word_file.filename}）",
+        )
+
+    # 4. 读取文件内容并校验大小
+    pdf_data = await pdf_file.read()
+    word_data = await word_file.read()
+
+    if len(pdf_data) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"PDF 文件过大（{len(pdf_data) / 1024 / 1024:.1f}MB），最大 10MB",
+        )
+    if len(word_data) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Word 文件过大（{len(word_data) / 1024 / 1024:.1f}MB），最大 10MB",
+        )
+
+    # 5. 上传到 S3
+    try:
+        from storage import get_storage, StorageError
+        storage = get_storage()
+    except StorageError as e:
+        raise HTTPException(status_code=503, detail=f"S3 存储未配置: {e}")
+
+    pdf_key = storage.build_key(order.order_no, pdf_file.filename)
+    word_key = storage.build_key(order.order_no, word_file.filename)
+
+    storage.upload_file(pdf_key, pdf_data, get_file_content_type(pdf_file.filename))
+    storage.upload_file(word_key, word_data, get_file_content_type(word_file.filename))
+
+    # 6. 保存交付记录
+    delivery = m.Delivery(
+        order_no=order_no,
+        pdf_key=pdf_key,
+        word_key=word_key,
+        pdf_filename=pdf_file.filename,
+        word_filename=word_file.filename,
+        pdf_size=len(pdf_data),
+        word_size=len(word_data),
+        remark=remark,
+    )
+    db.add(delivery)
+
     order.status = "delivered"
     order.delivered_at = datetime.now()
     order.freeze_until = datetime.now() + timedelta(days=7)
-    # 交付动作重置周期（为验收不通过退回后重新计时）
     reset_delivery_cycle(order, db)
     db.commit()
-    return {"status": "success", "message": "已交付，等待买家验收"}
+
+    return {
+        "status": "success",
+        "message": "已交付，等待买家验收",
+        "pdf_filename": pdf_file.filename,
+        "word_filename": word_file.filename,
+    }
+
+
+@app.get("/api/v1/orders/{order_no}/delivery-url")
+async def download_delivery_file(
+    order_no: str,
+    file_type: Optional[str] = Query(None, description="pdf 或 word"),
+    type_f: Optional[str] = Query(None, alias="type", description="pdf 或 word (兼容别名)"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """下载交付文件 — 后端代理，避免内网 S3 地址无法访问"""
+    # 兼容 file_type 和 type 两种参数名
+    ft = file_type or type_f or "pdf"
+
+    delivery = db.query(m.Delivery).filter(m.Delivery.order_no == order_no).first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="该订单暂无交付文件")
+
+    # 权限校验：只有订单买家或制作者可以下载
+    order = db.query(m.Order).filter(m.Order.order_no == order_no).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    if order.user_id != current_user["id"] and order.creator_id != current_user["id"]:
+        raise HTTPException(status_code=403, detail="无权下载该文件")
+
+    if ft == "pdf":
+        key = delivery.pdf_key
+        filename = delivery.pdf_filename
+    elif ft == "word":
+        key = delivery.word_key
+        filename = delivery.word_filename
+    else:
+        raise HTTPException(status_code=400, detail="file_type 必须是 pdf 或 word")
+
+    if not key:
+        raise HTTPException(status_code=404, detail=f"未找到 {ft} 文件")
+
+    try:
+        from storage import get_storage, StorageError
+        storage = get_storage()
+        # 直接从 S3 读取文件内容
+        resp = storage.client.get_object(Bucket=storage.bucket, Key=key)
+        body = resp["Body"]  # StreamingBody
+        content_length = resp.get("ContentLength", 0)
+    except StorageError as e:
+        raise HTTPException(status_code=503, detail=f"读取文件失败: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"S3 读取失败: {e}")
+
+    # 设置正确的 Content-Type
+    content_types = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc": "application/msword",
+    }
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "pdf"
+    media_type = content_types.get(ext, "application/octet-stream")
+
+    # Content-Disposition 不支持中文，需要 URL-encode
+    import urllib.parse
+    encoded_filename = urllib.parse.quote(filename.encode("utf-8"))
+    disposition = f'attachment; filename*=UTF-8\'\'{encoded_filename}'
+
+    return StreamingResponse(
+        body,
+        media_type=media_type,
+        headers={"Content-Disposition": disposition},
+    )
 
 
 # ================= 买家验收 =================
