@@ -225,7 +225,7 @@ def get_config(db: Session, key: str, default: float = 0.0) -> float:
     descriptions = {
         "download_price": "下载订单金额", "custom_price": "定制订单金额",
         "creator_rate": "制作者分佣比例", "level1_rate": "一级推广分佣比例",
-        "level2_rate": "二级推广分佣比例", "level3_rate": "三级推广分佣比例",
+        "level2_rate": "二级推广分佣比例", "level3_rate": "三级推广分佣比例(已停用)",
         "deposit_amount": "制作者保证金金额",
     }
     cfg = m.SystemConfig(key=key, value=default, description=descriptions.get(key, key))
@@ -241,7 +241,7 @@ def load_all_configs(db: Session) -> dict:
         "creator_rate": get_config(db, "creator_rate", 0.30),
         "level1_rate": get_config(db, "level1_rate", 0.15),
         "level2_rate": get_config(db, "level2_rate", 0.08),
-        "level3_rate": get_config(db, "level3_rate", 0.05),
+        "level3_rate": get_config(db, "level3_rate", 0.05),  # 保留兼容旧数据,不再使用
         "deposit_amount": get_config(db, "deposit_amount", 20.0),
     }
 
@@ -378,10 +378,10 @@ def _update_team_size(user_id: int, db: Session):
 
 def get_ref_chain(ref_user_id: int, db: Session) -> list:
     configs = load_all_configs(db)
-    rates = [configs["level1_rate"], configs["level2_rate"], configs["level3_rate"]]
+    rates = [configs["level1_rate"], configs["level2_rate"]]
     chain = []
     uid = ref_user_id
-    for level in range(1, 4):
+    for level in range(1, 3):
         if uid is None:
             break
         user = db.query(m.User).filter(m.User.id == uid).first()
@@ -403,7 +403,7 @@ def distribute_commission(order: m.Order, db: Session):
     if order.ref_user_id:
         chain = get_ref_chain(order.ref_user_id, db)
         for user_id, level, rate in chain:
-            if level > 3:
+            if level > 2:
                 break
             commission = round(amount * rate, 2)
             if commission <= 0:
@@ -442,12 +442,12 @@ def create_freeze_pending(order: m.Order, db: Session):
             level=0, amount=creator_amt, rate=configs["creator_rate"],
         ))
 
-        # 2. 制作者的推广链佣金（三级）
+        # 2. 制作者的推广链佣金（二级,含本人在内共三级）
         creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
         if creator and creator.parent_id:
             chain = get_ref_chain(creator.parent_id, db)
             for user_id, level, rate in chain:
-                if level > 3:
+                if level > 2:
                     break
                 commission = round(amount * rate, 2)
                 if commission <= 0:
@@ -462,11 +462,11 @@ def create_freeze_pending(order: m.Order, db: Session):
                     level=level, amount=commission, rate=rate,
                 ))
 
-    # 3. 下单用户的推广链佣金（三级）
+    # 3. 下单用户的推广链佣金（二级）
     if order.ref_user_id:
         chain = get_ref_chain(order.ref_user_id, db)
         for user_id, level, rate in chain:
-            if level > 3:
+            if level > 2:
                 break
             commission = round(amount * rate, 2)
             if commission <= 0:
@@ -937,9 +937,9 @@ async def get_commission_config(db: Session = Depends(get_db), admin_user: dict 
 @app.put("/api/v1/admin/commission-config")
 async def update_commission_config(
     req: UpdateCommissionConfigReq, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
-    if req.level not in (1, 2, 3):
-        raise HTTPException(status_code=400, detail="级别必须是 1/2/3")
-    key_map = {1: "level1_rate", 2: "level2_rate", 3: "level3_rate"}
+    if req.level not in (1, 2):
+        raise HTTPException(status_code=400, detail="级别必须是 1/2")
+    key_map = {1: "level1_rate", 2: "level2_rate"}  # level3已停用
     cfg = db.query(m.SystemConfig).filter(m.SystemConfig.key == key_map[req.level]).first()
     if not cfg:
         cfg = m.SystemConfig(key=key_map[req.level], value=req.rate)
