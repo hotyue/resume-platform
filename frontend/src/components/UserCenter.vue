@@ -158,7 +158,7 @@ const handleLogout = () => {
     message: '确定要退出当前账号吗？',
   }).then(() => {
     auth.logout()
-    router.push('/login')
+    router.push('/')
   }).catch(() => {})
 }
 
@@ -167,7 +167,10 @@ const fetchUserInfo = async () => {
     const res = await request.get('/user/me')
     userInfo.value = res.data
   } catch (error) {
-    showToast('获取用户信息失败')
+    // 用户已退出登录时不弹错误提示
+    if (auth.isLoggedIn) {
+      showToast('获取用户信息失败')
+    }
   } finally {
     loading.value = false
   }

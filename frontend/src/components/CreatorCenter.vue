@@ -67,6 +67,7 @@ const fetchApplicationStatus = async () => {
       hasApplied.value = false
     }
   } catch (e) {
+    if (!auth.isLoggedIn) return
     if (e.response?.status !== 401) {
       showToast('获取申请状态失败')
     }
@@ -93,7 +94,7 @@ const handleResign = async () => {
       await request.post('/creator/resign', { force: false })
       showSuccessToast('已退出制作者')
       auth.logout()
-      router.push('/login')
+      router.push('/')
     } catch (e) {
       const msg = e.response?.data?.detail || '退出失败，请稍后重试'
       if (msg.includes('force=true')) {
@@ -108,7 +109,7 @@ const handleResign = async () => {
             await request.post('/creator/resign', { force: true })
             showSuccessToast('已强制退出制作者')
             auth.logout()
-            router.push('/login')
+            router.push('/')
           } catch (e2) {
             showConfirmDialog({
               title: '强制退出失败',
@@ -157,6 +158,7 @@ const fetchOrders = async () => {
     const res = await request.get(`/creator/orders?tab=${orderTab.value}`)
     orders.value = res.data
   } catch (e) {
+    if (!auth.isLoggedIn) return
     if (e.response?.status === 403) {
       showToast('请先申请成为制作者')
     } else {

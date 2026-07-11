@@ -246,12 +246,38 @@ const viewOrderDetail = async (orderNo) => {
 }
 
 const statusLabel = (s) => {
-  const map = { pending: '待支付', paid: '已支付', processing: '处理中', completed: '已完成' }
+  const map = {
+    pending: '待支付',
+    paid: '已支付',
+    awaiting_claim: '待抢单',
+    claimed: '已抢单',
+    in_progress: '制作中',
+    delivered: '已交付',
+    accepted: '已确认',
+    rejected: '已拒绝',
+    refund_requested: '退款申请中',
+    refunded: '已退款',
+    completed: '已完成',
+    cancelled: '已取消',
+  }
   return map[s] || s
 }
 
 const statusType = (s) => {
-  const map = { pending: 'warning', paid: 'primary', processing: 'default', completed: 'success' }
+  const map = {
+    pending: 'warning',
+    paid: 'primary',
+    awaiting_claim: 'warning',
+    claimed: 'primary',
+    in_progress: 'primary',
+    delivered: 'default',
+    accepted: 'primary',
+    rejected: 'danger',
+    refund_requested: 'warning',
+    refunded: 'default',
+    completed: 'success',
+    cancelled: 'default',
+  }
   return map[s] || 'default'
 }
 
@@ -611,7 +637,7 @@ onMounted(() => {
         <div class="filter-row">
           <van-field v-model="orderSearch" placeholder="搜索订单号/模板名" clearable @blur="fetchOrders" />
           <div class="status-chips">
-            <van-tag v-for="s in ['', 'pending', 'paid', 'processing', 'completed']" :key="s"
+            <van-tag v-for="s in ['', 'pending', 'paid', 'awaiting_claim', 'claimed', 'in_progress', 'delivered', 'completed', 'refunded', 'cancelled']" :key="s"
               :type="orderStatusFilter === s ? 'primary' : 'default'"
               plain size="medium" style="margin:4px" @click="orderStatusFilter = s; orderPage = 1; fetchOrders()">
               {{ s ? statusLabel(s) : '全部' }}

@@ -40,7 +40,7 @@ function onTabChange(idx) {
 
 const doLogout = () => {
   auth.logout()
-  router.push('/login')
+  router.push('/')
 }
 </script>
 

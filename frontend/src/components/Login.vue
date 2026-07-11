@@ -26,7 +26,8 @@ const doLogin = async () => {
     const { access_token: token, user } = res.data
     auth.setAuth(token, user)
     showToast('登录成功')
-    router.push('/')
+    const redirect = new URLSearchParams(window.location.search).get('redirect')
+    router.push(redirect || '/')
   } catch (e) {
     closeToast()
     showToast(e.response?.data?.detail || '登录失败')
