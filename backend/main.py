@@ -485,19 +485,26 @@ async def register(req: RegisterReq, db: Session = Depends(get_db)):
     # 解析推广关系：优先 invite_code，兼容 ref_user_id
     parent_id = None
     if req.invite_code:
-        code = req.invite_code.strip().upper()
-        # 格式 1: INV000006 → 提取 user_id
-        if code.startswith("INV"):
-            try:
-                parent_id = int(code[3:])
-            except ValueError:
-                pass
-        # 格式 2: 直接用户名（如 hotyue）
+        code = req.invite_code.strip()
+        # 格式 1: 纯数字用户ID（如 "6"）
+        try:
+            parent_id = int(code)
+        except ValueError:
+            pass
+        # 格式 2: INV 推广码（如 "INV000006"）
         if not parent_id:
-            parent = db.query(m.User).filter(m.User.username == req.invite_code.strip()).first()
+            upper_code = code.upper()
+            if upper_code.startswith("INV"):
+                try:
+                    parent_id = int(upper_code[3:])
+                except ValueError:
+                    pass
+        # 格式 3: 用户名（如 "hotyue"）
+        if not parent_id:
+            parent = db.query(m.User).filter(m.User.username == code).first()
             if parent:
                 parent_id = parent.id
-        # 格式 3: 查 invite_code
+        # 最终验证用户存在
         parent = db.query(m.User).filter(m.User.id == parent_id).first() if parent_id else None
         if parent:
             user.parent_id = parent.id
