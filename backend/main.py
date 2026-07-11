@@ -430,10 +430,11 @@ def settle_custom_commission(order: m.Order, db: Session):
     pending_records = []
     if order.creator_id:
         creator_amt = round(amount * configs["creator_rate"], 2)
-        # 实时累加制作分佣统计
+        # 实时累加制作分佣统计 + 账户余额
         creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
         if creator:
             creator.making_commission += creator_amt
+            creator.wallet_balance += creator_amt
         pending_records.append(m.CommissionPending(
             order_no=order.order_no, user_id=order.creator_id,
             role_type="creator", amount=creator_amt, rate=configs["creator_rate"],
@@ -451,10 +452,11 @@ def settle_custom_commission(order: m.Order, db: Session):
             commission = round(amount * rate, 2)
             if commission <= 0:
                 continue
-            # 实时累加推广分佣统计
+            # 实时累加推广分佣统计 + 账户余额
             user = db.query(m.User).filter(m.User.id == user_id).first()
             if user:
                 user.referral_commission += commission
+                user.wallet_balance += commission
             pending_records.append(m.CommissionPending(
                 order_no=order.order_no, user_id=user_id,
                 role_type=f"level{level}", amount=commission, rate=rate,
@@ -1544,12 +1546,10 @@ async def release_frozen_commissions(db: Session = Depends(get_db), admin_user: 
         m.CommissionPending.status == "pending", m.CommissionPending.freeze_until <= now).all()
     count = 0
     for p in pending:
-        user = db.query(m.User).filter(m.User.id == p.user_id).first()
-        if user:
-            user.wallet_balance += p.amount
-            count += 1
+        # 余额已在 settle_custom_commission 中即时增加，此处仅标记释放状态
         p.status = "released"
         p.released_at = now
+        count += 1
     auto_accept = db.query(m.Order).filter(m.Order.status == "delivered", m.Order.freeze_until <= now).all()
     auto_count = 0
     for order in auto_accept:
