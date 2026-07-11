@@ -235,13 +235,14 @@ def get_config(db: Session, key: str, default: float = 0.0) -> float:
 
 
 def load_all_configs(db: Session) -> dict:
+    """加载系统配置（分佣比例已硬编码为 30%/10%，此处仅兼容旧接口）"""
     return {
         "download_price": get_config(db, "download_price", 1.99),
         "custom_price": get_config(db, "custom_price", 19.99),
-        "creator_rate": get_config(db, "creator_rate", 0.30),
-        "level1_rate": get_config(db, "level1_rate", 0.15),
-        "level2_rate": get_config(db, "level2_rate", 0.08),
-        "level3_rate": get_config(db, "level3_rate", 0.05),  # 保留兼容旧数据,不再使用
+        "creator_rate": get_config(db, "creator_rate", 0.30),  # 兼容旧接口
+        "level1_rate": get_config(db, "level1_rate", 0.30),  # 兼容旧接口,分佣已硬编码
+        "level2_rate": get_config(db, "level2_rate", 0.10),  # 兼容旧接口,分佣已硬编码
+        "level3_rate": get_config(db, "level3_rate", 0.00),  # 已停用
         "deposit_amount": get_config(db, "deposit_amount", 20.0),
     }
 
@@ -376,110 +377,103 @@ def _update_team_size(user_id: int, db: Session):
         _update_team_size(user.parent_id, db)
 
 
-def get_ref_chain(ref_user_id: int, db: Session) -> list:
-    configs = load_all_configs(db)
-    rates = [configs["level1_rate"], configs["level2_rate"]]
+def get_ref_chain(ref_user_id: int, db: Session, rates: list = None) -> list:
+    """获取推广链分佣
+    ref_user_id: 起始用户ID
+    rates: 各级比例列表,默认 [0.30, 0.10]
+    """
+    if rates is None:
+        rates = [0.30, 0.10]
     chain = []
     uid = ref_user_id
-    for level in range(1, 3):
+    for level in range(len(rates)):
         if uid is None:
             break
         user = db.query(m.User).filter(m.User.id == uid).first()
         if not user:
             break
-        chain.append((uid, level, rates[level - 1]))
+        chain.append((uid, level + 1, rates[level]))
         uid = user.parent_id
     return chain
 
 
 # ---------------------------------------------------------------------------
-# 佣金结算
+# 推荐分佣（统一）
 # ---------------------------------------------------------------------------
+# 比例：L1 30% / L2 10%
+REFERRAL_RATES = [0.30, 0.10]
+
 def distribute_commission(order: m.Order, db: Session):
-    """下载订单佣金 — 即时到账（无冻结）"""
+    """下载订单 — 推荐分佣即时到账"""
     if order.commission_distributed:
         return
     amount = order.amount
-    if order.ref_user_id:
-        chain = get_ref_chain(order.ref_user_id, db)
-        for user_id, level, rate in chain:
-            if level > 2:
-                break
-            commission = round(amount * rate, 2)
-            if commission <= 0:
-                continue
-            user = db.query(m.User).filter(m.User.id == user_id).first()
-            if user:
-                user.wallet_balance += commission
-                user.referral_commission += commission
-            rec = m.CommissionRecord(
-                order_no=order.order_no, user_id=user_id,
-                level=level, amount=commission, rate=rate,
-            )
-            db.add(rec)
+
+    # 下载订单：基于下单用户的推广链
+    user = db.query(m.User).filter(m.User.id == order.user_id).first()
+    if not user or not user.parent_id:
+        order.commission_distributed = True
+        return
+
+    chain = get_ref_chain(user.parent_id, db, REFERRAL_RATES)
+    for user_id, level, rate in chain:
+        commission = round(amount * rate, 2)
+        if commission <= 0:
+            continue
+        u = db.query(m.User).filter(m.User.id == user_id).first()
+        if u:
+            u.wallet_balance += commission
+            u.referral_commission += commission
+        db.add(m.CommissionRecord(
+            order_no=order.order_no, user_id=user_id,
+            level=level, amount=commission, rate=rate,
+        ))
     order.commission_distributed = True
 
 
 def create_freeze_pending(order: m.Order, db: Session):
-    """提交作品时创建冻结记录（不加余额）"""
+    """定制订单提交作品时创建冻结记录
+
+    推荐分佣逻辑：
+    - L1 (30%) = 制作者本人
+    - L2 (10%) = 制作者的上级
+    """
     if order.commission_distributed:
         return
-    configs = load_all_configs(db)
     amount = order.amount
     freeze_until = datetime.now() + timedelta(days=7)
     pending_records = []
 
-    # 1. 制作者佣金（仅定制订单）
-    if order.creator_id:
-        creator_amt = round(amount * configs["creator_rate"], 2)
+    if not order.creator_id:
+        order.commission_distributed = True
+        return
+
+    # L1: 制作者本人 30%
+    creator_amt = round(amount * 0.30, 2)
+    pending_records.append(m.CommissionPending(
+        order_no=order.order_no, user_id=order.creator_id,
+        role_type="creator", amount=creator_amt, rate=0.30,
+        freeze_until=freeze_until,
+    ))
+    db.add(m.CommissionRecord(
+        order_no=order.order_no, user_id=order.creator_id,
+        level=0, amount=creator_amt, rate=0.30,
+    ))
+
+    # L2: 制作者的上级 10%
+    creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
+    if creator and creator.parent_id:
+        parent_amt = round(amount * 0.10, 2)
         pending_records.append(m.CommissionPending(
-            order_no=order.order_no, user_id=order.creator_id,
-            role_type="creator", amount=creator_amt, rate=configs["creator_rate"],
+            order_no=order.order_no, user_id=creator.parent_id,
+            role_type="referral", amount=parent_amt, rate=0.10,
             freeze_until=freeze_until,
         ))
         db.add(m.CommissionRecord(
-            order_no=order.order_no, user_id=order.creator_id,
-            level=0, amount=creator_amt, rate=configs["creator_rate"],
+            order_no=order.order_no, user_id=creator.parent_id,
+            level=1, amount=parent_amt, rate=0.10,
         ))
 
-        # 2. 制作者的推广链佣金（二级,含本人在内共三级）
-        creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
-        if creator and creator.parent_id:
-            chain = get_ref_chain(creator.parent_id, db)
-            for user_id, level, rate in chain:
-                if level > 2:
-                    break
-                commission = round(amount * rate, 2)
-                if commission <= 0:
-                    continue
-                pending_records.append(m.CommissionPending(
-                    order_no=order.order_no, user_id=user_id,
-                    role_type=f"creator_level{level}", amount=commission, rate=rate,
-                    freeze_until=freeze_until,
-                ))
-                db.add(m.CommissionRecord(
-                    order_no=order.order_no, user_id=user_id,
-                    level=level, amount=commission, rate=rate,
-                ))
-
-    # 3. 下单用户的推广链佣金（仅下载订单，避免与定制订单重复）
-    elif not is_custom_order(order.order_type) and order.ref_user_id:
-        chain = get_ref_chain(order.ref_user_id, db)
-        for user_id, level, rate in chain:
-            if level > 2:
-                break
-            commission = round(amount * rate, 2)
-            if commission <= 0:
-                continue
-            pending_records.append(m.CommissionPending(
-                order_no=order.order_no, user_id=user_id,
-                role_type=f"level{level}", amount=commission, rate=rate,
-                freeze_until=freeze_until,
-            ))
-            db.add(m.CommissionRecord(
-                order_no=order.order_no, user_id=user_id,
-                level=level, amount=commission, rate=rate,
-            ))
     if pending_records:
         db.add_all(pending_records)
     order.commission_distributed = True

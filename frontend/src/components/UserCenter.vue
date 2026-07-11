@@ -388,12 +388,11 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 三级分佣说明 -->
+      <!-- 推荐分佣说明 -->
       <div class="commission-rules">
         <div class="rule-item" v-for="(r, i) in [
-          { level: '一级', rate: '15%', desc: '直接推荐用户下单' },
-          { level: '二级', rate: '8%', desc: '下级推荐用户下单' },
-          { level: '三级', rate: '5%', desc: '下下级推荐用户下单' },
+          { level: '直接上级', rate: '30%', desc: '推荐用户首次下单' },
+          { level: '上上级', rate: '10%', desc: '间接推荐用户首次下单' },
         ]" :key="i">
           <span class="rule-level">{{ r.level }}</span>
           <span class="rule-rate">{{ r.rate }}</span>
@@ -509,9 +508,8 @@ onMounted(() => {
             <div class="invite-instructions">
               <h4>推广规则</h4>
               <ul>
-                <li>邀请好友注册，好友下单你获得 <strong>15%</strong> 佣金</li>
-                <li>好友邀请的下级下单，你获得 <strong>8%</strong> 佣金</li>
-                <li>三级以内间接订单，你获得 <strong>5%</strong> 佣金</li>
+                <li>邀请好友注册，好友下单你获得 <strong>30%</strong> 佣金</li>
+                <li>好友邀请的下级下单，你获得 <strong>10%</strong> 佣金</li>
                 <li>佣金满 50 元可申请提现</li>
               </ul>
             </div>
