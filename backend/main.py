@@ -428,6 +428,8 @@ def create_freeze_pending(order: m.Order, db: Session):
     amount = order.amount
     freeze_until = datetime.now() + timedelta(days=7)
     pending_records = []
+
+    # 1. 制作者佣金
     if order.creator_id:
         creator_amt = round(amount * configs["creator_rate"], 2)
         pending_records.append(m.CommissionPending(
@@ -439,6 +441,28 @@ def create_freeze_pending(order: m.Order, db: Session):
             order_no=order.order_no, user_id=order.creator_id,
             level=0, amount=creator_amt, rate=configs["creator_rate"],
         ))
+
+        # 2. 制作者的推广链佣金（三级）
+        creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
+        if creator and creator.parent_id:
+            chain = get_ref_chain(creator.parent_id, db)
+            for user_id, level, rate in chain:
+                if level > 3:
+                    break
+                commission = round(amount * rate, 2)
+                if commission <= 0:
+                    continue
+                pending_records.append(m.CommissionPending(
+                    order_no=order.order_no, user_id=user_id,
+                    role_type=f"creator_level{level}", amount=commission, rate=rate,
+                    freeze_until=freeze_until,
+                ))
+                db.add(m.CommissionRecord(
+                    order_no=order.order_no, user_id=user_id,
+                    level=level, amount=commission, rate=rate,
+                ))
+
+    # 3. 下单用户的推广链佣金（三级）
     if order.ref_user_id:
         chain = get_ref_chain(order.ref_user_id, db)
         for user_id, level, rate in chain:
