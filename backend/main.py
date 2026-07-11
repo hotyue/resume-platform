@@ -1580,37 +1580,102 @@ async def health(db: Session = Depends(get_db)):
 # ================= 用户端端点 =================
 
 @app.get("/api/v1/user/team")
-async def get_team(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """获取用户团队信息（1/2/3 级）"""
+async def get_team(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    quarter: str = None):
+    """获取用户团队信息（1/2/3 级）
+
+    quarter 格式: 2026-Q1 / 2026-Q2 / 2026-Q3 / 2026-Q4
+    不传则显示全部（仍限制每级 TOP5）
+    每级按贡献值（当季佣金总额）降序排列，最多 5 名
+    """
     uid = current_user["id"]
     user = db.query(m.User).filter(m.User.id == uid).first()
     if not user:
         raise HTTPException(404, "用户不存在")
 
-    # 0 级（自己）
-    level_0 = {"id": user.id, "username": user.username, "role": user.role, "wallet_balance": user.wallet_balance}
+    # 解析季度范围
+    quarter_start = None
+    quarter_end = None
+    if quarter:
+        try:
+            year, q = quarter.split("-Q")
+            year = int(year)
+            q = int(q)
+            month = (q - 1) * 3 + 1
+            quarter_start = datetime(year, month, 1)
+            if q == 4:
+                quarter_end = datetime(year + 1, 1, 1)
+            else:
+                quarter_end = datetime(year, month + 3, 1)
+        except (ValueError, IndexError):
+            pass  # 格式错误则忽略季度过滤
 
-    # 1 级（直接下级）
+    def user_contrib(user_id: int) -> float:
+        """用户当季贡献值（佣金总额）"""
+        q = db.query(func.sum(m.CommissionRecord.amount)).filter(
+            m.CommissionRecord.user_id == user_id
+        )
+        if quarter_start:
+            q = q.filter(m.CommissionRecord.created_at >= quarter_start)
+        if quarter_end:
+            q = q.filter(m.CommissionRecord.created_at < quarter_end)
+        return q.scalar() or 0.0
+
+    def build_member(u: m.User) -> dict:
+        return {
+            "id": u.id,
+            "username": u.username,
+            "role": u.role,
+            "wallet_balance": u.wallet_balance,
+            "contribution": round(user_contrib(u.id), 2),
+        }
+
+    # 0 级（自己）
+    level_0 = {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "wallet_balance": user.wallet_balance,
+        "contribution": round(user_contrib(user.id), 2),
+    }
+
+    # 1 级（直接下级）— 按贡献值 TOP5
     l1 = db.query(m.User).filter(m.User.parent_id == uid).all()
-    level_1 = [{"id": u.id, "username": u.username, "role": u.role, "wallet_balance": u.wallet_balance} for u in l1]
+    level_1 = sorted([build_member(u) for u in l1], key=lambda x: x["contribution"], reverse=True)[:5]
     l1_ids = {u.id for u in l1}
 
-    # 2 级（1 级的下级）
+    # 2 级 — 按贡献值 TOP5
     level_2 = []
     if l1_ids:
         l2 = db.query(m.User).filter(m.User.parent_id.in_(l1_ids)).all()
-        level_2 = [{"id": u.id, "username": u.username, "role": u.role, "wallet_balance": u.wallet_balance} for u in l2]
+        level_2 = sorted([build_member(u) for u in l2], key=lambda x: x["contribution"], reverse=True)[:5]
         l2_ids = {u.id for u in l2}
     else:
         l2_ids = set()
 
-    # 3 级（2 级的下级）
+    # 3 级 — 按贡献值 TOP5
     level_3 = []
     if l2_ids:
         l3 = db.query(m.User).filter(m.User.parent_id.in_(l2_ids)).all()
-        level_3 = [{"id": u.id, "username": u.username, "role": u.role, "wallet_balance": u.wallet_balance} for u in l3]
+        level_3 = sorted([build_member(u) for u in l3], key=lambda x: x["contribution"], reverse=True)[:5]
 
-    return {"level_0": level_0, "level_1": level_1, "level_2": level_2, "level_3": level_3}
+    # 总人数（不受 TOP5 限制）
+    total_l1 = len(l1)
+    total_l2 = len(db.query(m.User).filter(m.User.parent_id.in_(l1_ids)).all()) if l1_ids else 0
+    total_l3 = len(db.query(m.User).filter(m.User.parent_id.in_(l2_ids)).all()) if l2_ids else 0
+
+    return {
+        "level_0": level_0,
+        "level_1": level_1,
+        "level_2": level_2,
+        "level_3": level_3,
+        "total_l1": total_l1,
+        "total_l2": total_l2,
+        "total_l3": total_l3,
+        "quarter": quarter,
+    }
 
 
 @app.get("/api/v1/user/commission-history")

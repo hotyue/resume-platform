@@ -22,6 +22,24 @@ const showWithdraw = ref(false)
 const withdrawAmount = ref('')
 const paymentInfo = ref('')
 
+// 季度选择
+const selectedQuarter = ref('')
+const quarterOptions = computed(() => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const q = Math.ceil((now.getMonth() + 1) / 3)
+  const opts = []
+  for (let y = year - 1; y <= year; y++) {
+    for (let n = 1; n <= 4; n++) {
+      opts.push({ text: `${y} Q${n}`, value: `${y}-Q${n}` })
+    }
+  }
+  // 默认选中当前季度
+  const current = `${year}-Q${q}`
+  if (!selectedQuarter.value) selectedQuarter.value = current
+  return opts
+})
+
 // =========== 充值 ===========
 const showRecharge = ref(false)
 const rechargeAmount = ref('')
@@ -212,7 +230,8 @@ const fetchUserInfo = async () => {
 const fetchTeam = async () => {
   teamLoading.value = true
   try {
-    const res = await request.get('/user/team')
+    const params = selectedQuarter.value ? { quarter: selectedQuarter.value } : {}
+    const res = await request.get('/user/team', { params })
     teamData.value = res.data
   } catch (e) {
     showToast('获取团队信息失败')
@@ -306,9 +325,9 @@ const withdrawAvailable = computed(() => {
 
 const teamCount = computed(() => {
   if (!teamData.value) return 0
-  return (teamData.value.level_1?.length || 0) +
-         (teamData.value.level_2?.length || 0) +
-         (teamData.value.level_3?.length || 0)
+  return (teamData.value.total_l1 || 0) +
+         (teamData.value.total_l2 || 0) +
+         (teamData.value.total_l3 || 0)
 })
 
 const roleLabel = (role) => {
@@ -383,6 +402,13 @@ onMounted(() => {
         <van-tab title="我的团队">
           <div v-if="teamLoading" class="loading">加载团队信息...</div>
           <div v-else-if="teamData" class="team-tree">
+            <!-- 季度选择 -->
+            <div class="quarter-selector">
+              <van-dropdown-menu active-color="#ee0a24">
+                <van-dropdown-item v-model="selectedQuarter" :options="quarterOptions" @change="fetchTeam" />
+              </van-dropdown-menu>
+            </div>
+
             <div class="team-summary">团队共 <strong>{{ teamCount }}</strong> 人（含直接+间接）</div>
 
             <!-- 我 -->
@@ -390,36 +416,49 @@ onMounted(() => {
               <van-icon name="contact" /> {{ teamData.level_0.username }}
               <van-tag size="mini" round>{{ roleLabel(teamData.level_0.role) }}</van-tag>
               <span class="node-balance">¥{{ teamData.level_0.wallet_balance?.toFixed(2) }}</span>
+              <span class="node-contrib">贡献 ¥{{ teamData.level_0.contribution?.toFixed(2) }}</span>
             </div>
 
             <!-- 一级 -->
             <div v-if="teamData.level_1?.length" class="level-section">
-              <div class="level-header"><van-icon name="down" /> 一级成员（直接邀请）</div>
+              <div class="level-header">
+                <van-icon name="down" /> 一级成员（直接邀请）
+                <span class="level-count">{{ teamData.level_1.length }}/{{ teamData.total_l1 }} 人</span>
+              </div>
               <div v-for="m in teamData.level_1" :key="m.id" class="tree-node level-1">
                 <van-icon name="user" /> {{ m.username }}
                 <van-tag size="mini" round>{{ roleLabel(m.role) }}</van-tag>
                 <span class="node-balance">¥{{ m.wallet_balance?.toFixed(2) }}</span>
+                <span class="node-contrib">贡献 ¥{{ m.contribution?.toFixed(2) }}</span>
               </div>
             </div>
             <div v-else class="empty-hint">暂无一级成员</div>
 
             <!-- 二级 -->
             <div v-if="teamData.level_2?.length" class="level-section">
-              <div class="level-header"><van-icon name="down" /> 二级成员（间接邀请）</div>
+              <div class="level-header">
+                <van-icon name="down" /> 二级成员（间接邀请）
+                <span class="level-count">{{ teamData.level_2.length }}/{{ teamData.total_l2 }} 人</span>
+              </div>
               <div v-for="m in teamData.level_2" :key="m.id" class="tree-node level-2">
                 <van-icon name="user" /> {{ m.username }}
                 <van-tag size="mini" round>{{ roleLabel(m.role) }}</van-tag>
                 <span class="node-balance">¥{{ m.wallet_balance?.toFixed(2) }}</span>
+                <span class="node-contrib">贡献 ¥{{ m.contribution?.toFixed(2) }}</span>
               </div>
             </div>
 
             <!-- 三级 -->
             <div v-if="teamData.level_3?.length" class="level-section">
-              <div class="level-header"><van-icon name="down" /> 三级成员</div>
+              <div class="level-header">
+                <van-icon name="down" /> 三级成员
+                <span class="level-count">{{ teamData.level_3.length }}/{{ teamData.total_l3 }} 人</span>
+              </div>
               <div v-for="m in teamData.level_3" :key="m.id" class="tree-node level-3">
                 <van-icon name="user" /> {{ m.username }}
                 <van-tag size="mini" round>{{ roleLabel(m.role) }}</van-tag>
                 <span class="node-balance">¥{{ m.wallet_balance?.toFixed(2) }}</span>
+                <span class="node-contrib">贡献 ¥{{ m.contribution?.toFixed(2) }}</span>
               </div>
             </div>
           </div>
@@ -595,14 +634,17 @@ onMounted(() => {
 /* 团队树 */
 .team-tree { padding: 5px 0; }
 .team-summary { text-align: center; font-size: 13px; color: #666; margin-bottom: 15px; padding: 10px; background: #fff; border-radius: 8px; }
-.tree-node { display: flex; align-items: center; gap: 6px; padding: 10px 12px; margin-bottom: 5px; background: white; border-radius: 8px; font-size: 14px; border-left: 3px solid #ee0a24; }
+.quarter-selector { margin-bottom: 10px; }
+.tree-node { display: flex; align-items: center; gap: 6px; padding: 10px 12px; margin-bottom: 5px; background: white; border-radius: 8px; font-size: 14px; border-left: 3px solid #ee0a24; flex-wrap: wrap; }
 .level-self { border-left-color: #ee0a24; font-weight: bold; }
 .level-1 { border-left-color: #ff976a; margin-left: 15px; }
 .level-2 { border-left-color: #ffc8a2; margin-left: 30px; }
 .level-3 { border-left-color: #ffe0cc; margin-left: 45px; }
-.node-balance { margin-left: auto; font-size: 12px; color: #999; }
+.node-balance { font-size: 12px; color: #999; }
+.node-contrib { font-size: 11px; color: #ee0a24; background: #fff0f0; padding: 2px 6px; border-radius: 4px; }
 .level-section { margin-top: 10px; }
-.level-header { font-size: 12px; color: #999; padding: 5px 0; margin-left: 5px; }
+.level-header { font-size: 12px; color: #999; padding: 5px 0; margin-left: 5px; display: flex; justify-content: space-between; align-items: center; }
+.level-count { font-size: 11px; color: #bbb; }
 
 /* 佣金明细 */
 .commission-list { padding: 5px 0; }
