@@ -1,10 +1,11 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { showToast, showLoadingToast, closeToast } from 'vant'
 import request from '../api/request.js'
 
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -12,6 +13,15 @@ const username = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const inviteCode = ref('')
+
+// 自动填充推广码：URL参数 > localStorage缓存 > 无
+onMounted(() => {
+  if (route.query.ref) {
+    inviteCode.value = route.query.ref
+  } else if (localStorage.getItem('invite_code')) {
+    inviteCode.value = localStorage.getItem('invite_code')
+  }
+})
 
 const validatePasswordMatch = (value) => value === password.value
 

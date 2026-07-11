@@ -7,6 +7,18 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
+// 全局捕获推广码：URL 中有 ?ref= 时存入 localStorage
+if (route.query.ref) {
+  localStorage.setItem('invite_code', route.query.ref)
+}
+
+// 路由变化时也持续捕获
+watch(() => route.query.ref, (ref) => {
+  if (ref) {
+    localStorage.setItem('invite_code', ref)
+  }
+})
+
 const isLoggedIn = computed(() => auth.isLoggedIn)
 const isAdmin = computed(() => auth.isAdmin)
 
