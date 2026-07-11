@@ -526,6 +526,7 @@ onMounted(() => {
                 <p><strong>{{ o.template_name }}</strong></p>
                 <p class="co-req">{{ o.custom_requirements || '暂无需求描述' }}</p>
                 <p class="co-amount">¥{{ o.amount.toFixed(2) }}</p>
+                <p v-if="o.creator_name" class="co-creator">👤 接单人: {{ o.creator_name }}</p>
                 <p v-if="o.status === 'delivered'" class="co-frozen">⏳ 等待验收（7天自动通过）</p>
                 <!-- 预览交付文件 -->
                 <div v-if="['delivered', 'accepted'].includes(o.status)" class="co-preview">

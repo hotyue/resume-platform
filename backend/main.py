@@ -1252,9 +1252,14 @@ async def get_creator_orders(
         results = query.filter(m.Order.status == "awaiting_claim", m.Order.creator_id == None).all()
     else:
         results = query.filter(m.Order.creator_id == current_user["id"]).all()
-    return [{"order_no": o.order_no, "amount": o.amount, "status": o.status,
+    out = []
+    for o, t in results:
+        u = db.query(m.User).filter(m.User.id == o.user_id).first()
+        out.append({"order_no": o.order_no, "amount": o.amount, "status": o.status,
              "requirements": o.custom_requirements, "created_at": str(o.created_at),
-             "template_name": f"{t.category}-{t.name}"} for o, t in results]
+             "template_name": t.name,
+             "user_name": u.username if u else "未知"})
+    return out
 
 
 @app.post("/api/v1/creator/take")
@@ -1558,10 +1563,12 @@ async def get_my_orders(
     result = []
     for o in orders:
         template = db.query(m.Template).filter(m.Template.id == o.template_id).first()
+        creator = db.query(m.User).filter(m.User.id == o.creator_id).first() if o.creator_id else None
         result.append({"order_no": o.order_no,
             "template_name": template.name if template else "未知模板",
             "order_type": o.order_type, "amount": o.amount, "status": o.status,
             "custom_requirements": o.custom_requirements, "creator_id": o.creator_id,
+            "creator_name": creator.username if creator else None,
             "created_at": o.created_at.isoformat() if o.created_at else None,
             "delivered_at": o.delivered_at.isoformat() if o.delivered_at else None,
             "freeze_until": o.freeze_until.isoformat() if o.freeze_until else None,

@@ -324,6 +324,7 @@ onMounted(() => {
                 <span class="order-template">{{ o.template_name }}</span>
                 <van-tag round :type="statusType(o.status)">{{ statusLabel(o.status) }}</van-tag>
               </div>
+              <div class="order-meta">下单人: {{ o.user_name }}</div>
               <div class="order-amount">报酬: <strong>¥{{ (o.amount * 0.3).toFixed(2) }}</strong></div>
               <div class="order-req">{{ o.requirements }}</div>
               <van-button type="primary" size="small" round @click="handleTakeOrder(o.order_no)">
@@ -341,6 +342,7 @@ onMounted(() => {
                 <span class="order-template">{{ o.template_name }}</span>
                 <van-tag round :type="statusType(o.status)">{{ statusLabel(o.status) }}</van-tag>
               </div>
+              <div class="order-meta">下单人: {{ o.user_name }}</div>
               <div class="order-amount">报酬: <strong>¥{{ (o.amount * 0.3).toFixed(2) }}</strong></div>
               <div class="order-req">{{ o.requirements }}</div>
               <div v-if="o.status === 'delivered'" class="freeze-info">⏳ 等待买家验收（7天自动验收）</div>
@@ -482,6 +484,7 @@ onMounted(() => {
 .order-template { font-weight: 500; font-size: 14px; }
 .order-amount { font-size: 13px; color: #07c160; margin-bottom: 6px; }
 .order-req { font-size: 12px; color: #666; margin-bottom: 10px; padding: 8px; background: #f7f8fa; border-radius: 6px; line-height: 1.5; }
+.order-meta { font-size: 12px; color: #999; margin-bottom: 4px; }
 .freeze-info { font-size: 11px; color: #666; margin: 8px 0; padding: 6px 8px; background: #fffbe6; border-radius: 4px; border: 1px solid #ffe58f; }
 .accepted-info { font-size: 11px; color: #07c160; margin: 8px 0; padding: 6px 8px; background: #f0f9eb; border-radius: 4px; border: 1px solid #c2e7b0; }
 
