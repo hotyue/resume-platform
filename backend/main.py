@@ -420,8 +420,8 @@ def distribute_commission(order: m.Order, db: Session):
     order.commission_distributed = True
 
 
-def settle_custom_commission(order: m.Order, db: Session):
-    """定制订单佣金 — 验收通过后冻结 7 天"""
+def create_freeze_pending(order: m.Order, db: Session):
+    """提交作品时创建冻结记录（不加余额）"""
     if order.commission_distributed:
         return
     configs = load_all_configs(db)
@@ -430,11 +430,6 @@ def settle_custom_commission(order: m.Order, db: Session):
     pending_records = []
     if order.creator_id:
         creator_amt = round(amount * configs["creator_rate"], 2)
-        # 实时累加制作分佣统计 + 账户余额
-        creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
-        if creator:
-            creator.making_commission += creator_amt
-            creator.wallet_balance += creator_amt
         pending_records.append(m.CommissionPending(
             order_no=order.order_no, user_id=order.creator_id,
             role_type="creator", amount=creator_amt, rate=configs["creator_rate"],
@@ -452,11 +447,6 @@ def settle_custom_commission(order: m.Order, db: Session):
             commission = round(amount * rate, 2)
             if commission <= 0:
                 continue
-            # 实时累加推广分佣统计 + 账户余额
-            user = db.query(m.User).filter(m.User.id == user_id).first()
-            if user:
-                user.referral_commission += commission
-                user.wallet_balance += commission
             pending_records.append(m.CommissionPending(
                 order_no=order.order_no, user_id=user_id,
                 role_type=f"level{level}", amount=commission, rate=rate,
@@ -469,6 +459,25 @@ def settle_custom_commission(order: m.Order, db: Session):
     if pending_records:
         db.add_all(pending_records)
     order.commission_distributed = True
+
+
+def settle_custom_commission(order: m.Order, db: Session):
+    """验收通过 — 释放冻结佣金，加统计字段和余额"""
+    pending = db.query(m.CommissionPending).filter(
+        m.CommissionPending.order_no == order.order_no,
+        m.CommissionPending.status == "pending"
+    ).all()
+    now = datetime.now()
+    for p in pending:
+        user = db.query(m.User).filter(m.User.id == p.user_id).first()
+        if user:
+            if p.role_type == "creator":
+                user.making_commission += p.amount
+            else:
+                user.referral_commission += p.amount
+            user.wallet_balance += p.amount
+        p.status = "released"
+        p.released_at = now
 
 
 # ================= 认证 =================
@@ -1407,6 +1416,7 @@ async def deliver_order(
     order.delivered_at = datetime.now()
     order.freeze_until = datetime.now() + timedelta(days=7)
     reset_delivery_cycle(order, db)
+    create_freeze_pending(order, db)
     db.commit()
 
     return {
@@ -1502,10 +1512,14 @@ async def review_delivery(
         settle_custom_commission(order, db)
     elif req.result == "rejected":
         order.status = "in_progress"
+        # 取消冻结中的佣金（退回重做）
+        for p in db.query(m.CommissionPending).filter(m.CommissionPending.order_no == req.order_no,
+                                                      m.CommissionPending.status == "pending").all():
+            p.status = "cancelled"
     else:
         raise HTTPException(status_code=400, detail="验收结果必须是 accepted 或 rejected")
     db.commit()
-    msg = "验收通过，佣金将进入冻结期" if req.result == "accepted" else "已退回制作者重新制作"
+    msg = "验收通过，佣金已到账" if req.result == "accepted" else "已退回制作者重新制作"
     return {"status": "success", "message": msg}
 
 
@@ -1541,15 +1555,9 @@ async def request_refund(
 
 @app.post("/api/v1/admin/commission/release-frozen")
 async def release_frozen_commissions(db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
+    """超时自动验收 + 释放冻结佣金"""
     now = datetime.now()
-    pending = db.query(m.CommissionPending).filter(
-        m.CommissionPending.status == "pending", m.CommissionPending.freeze_until <= now).all()
-    count = 0
-    for p in pending:
-        # 余额已在 settle_custom_commission 中即时增加，此处仅标记释放状态
-        p.status = "released"
-        p.released_at = now
-        count += 1
+    # 找到所有超时未验收的订单，自动验收
     auto_accept = db.query(m.Order).filter(m.Order.status == "delivered", m.Order.freeze_until <= now).all()
     auto_count = 0
     for order in auto_accept:
@@ -1558,8 +1566,8 @@ async def release_frozen_commissions(db: Session = Depends(get_db), admin_user: 
         settle_custom_commission(order, db)
         auto_count += 1
     db.commit()
-    return {"released_commissions": count, "auto_accepted_orders": auto_count,
-            "message": f"释放 {count} 笔佣金，自动验收 {auto_count} 个订单"}
+    return {"auto_accepted_orders": auto_count,
+            "message": f"自动验收 {auto_count} 个订单，佣金已到账"}
 
 
 # ================= 买家订单列表 =================
