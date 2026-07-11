@@ -429,7 +429,7 @@ def create_freeze_pending(order: m.Order, db: Session):
     freeze_until = datetime.now() + timedelta(days=7)
     pending_records = []
 
-    # 1. 制作者佣金
+    # 1. 制作者佣金（仅定制订单）
     if order.creator_id:
         creator_amt = round(amount * configs["creator_rate"], 2)
         pending_records.append(m.CommissionPending(
@@ -462,8 +462,8 @@ def create_freeze_pending(order: m.Order, db: Session):
                     level=level, amount=commission, rate=rate,
                 ))
 
-    # 3. 下单用户的推广链佣金（二级）
-    if order.ref_user_id:
+    # 3. 下单用户的推广链佣金（仅下载订单，避免与定制订单重复）
+    elif not is_custom_order(order.order_type) and order.ref_user_id:
         chain = get_ref_chain(order.ref_user_id, db)
         for user_id, level, rate in chain:
             if level > 2:
