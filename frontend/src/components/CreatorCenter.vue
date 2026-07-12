@@ -233,6 +233,46 @@ const statusType = (s) => {
   return map[s] || 'default'
 }
 
+// =========== 辅助函数 ===========
+
+const formatTime = (ts) => {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}月${pad(d.getDate())}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const formatTimeShort = (ts) => {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}/${pad(d.getDate())}`
+}
+
+// 倒计时格式化
+const formatCountdown = (hours) => {
+  if (hours === null || hours === undefined) return ''
+  if (hours <= 0) return '已超时'
+  if (hours < 1) {
+    const mins = Math.round(hours * 60)
+    return `${mins} 分钟`
+  }
+  const h = Math.floor(hours)
+  const m = Math.round((hours - h) * 60)
+  return m > 0 ? `${h} 小时 ${m} 分钟` : `${h} 小时`
+}
+
+// 进度条节点状态
+const progressStep = (order) => {
+  // 0=制作中, 1=已交付, 2=已验收
+  if (order.delivery_status === 'accepted') return 2
+  if (order.delivery_status === 'delivered') return 1
+  if (order.delivery_status === 'progress') return 0
+  return -1
+}
+
 const onOrderTabChange = (index) => {
   orderTab.value = index === 0 ? 'pending' : 'mine'
   fetchOrders()
@@ -320,14 +360,37 @@ onMounted(() => {
           <div v-else-if="orders.length === 0" class="empty">暂无待接订单</div>
           <div v-else class="order-list">
             <div v-for="o in orders" :key="o.order_no" class="order-card">
-              <div class="order-header">
-                <span class="order-template">{{ o.template_name }}</span>
+              <div class="oc-header">
+                <span class="oc-order-no">ORD-{{ o.order_no ? o.order_no.slice(-8) : '' }}</span>
                 <van-tag round :type="statusType(o.status)">{{ statusLabel(o.status) }}</van-tag>
               </div>
-              <div class="order-meta">下单人: {{ o.user_name }}</div>
-              <div class="order-amount">报酬: <strong>¥{{ (o.amount * 0.3).toFixed(2) }}</strong></div>
-              <div class="order-req">{{ o.requirements }}</div>
-              <van-button type="primary" size="small" round @click="handleTakeOrder(o.order_no)">
+              <div class="oc-body">
+                <div class="oc-row">
+                  <span class="oc-label">模板名称</span>
+                  <span class="oc-val">{{ o.template_name }}</span>
+                </div>
+                <div class="oc-row">
+                  <span class="oc-label">订单金额</span>
+                  <span class="oc-val">¥{{ o.order_amount?.toFixed(2) || '0.00' }}</span>
+                </div>
+                <div class="oc-row">
+                  <span class="oc-label">报酬</span>
+                  <span class="oc-val oc-commission">¥{{ o.commission_amount?.toFixed(2) || '0.00' }}</span>
+                </div>
+                <div class="oc-row">
+                  <span class="oc-label">下单用户</span>
+                  <span class="oc-val">{{ o.user_name || '未知' }}</span>
+                </div>
+                <div class="oc-row">
+                  <span class="oc-label">下单日期</span>
+                  <span class="oc-val">{{ formatTime(o.created_at) }}</span>
+                </div>
+                <div v-if="o.requirements" class="oc-req">
+                  <div class="oc-req-label">需求描述</div>
+                  <div class="oc-req-text">{{ o.requirements }}</div>
+                </div>
+              </div>
+              <van-button type="primary" size="small" round block @click="handleTakeOrder(o.order_no)">
                 立即接单
               </van-button>
             </div>
@@ -338,21 +401,89 @@ onMounted(() => {
           <div v-else-if="orders.length === 0" class="empty">暂无订单</div>
           <div v-else class="order-list">
             <div v-for="o in orders" :key="o.order_no" class="order-card">
-              <div class="order-header">
-                <span class="order-template">{{ o.template_name }}</span>
+              <div class="oc-header">
+                <span class="oc-order-no">ORD-{{ o.order_no ? o.order_no.slice(-8) : '' }}</span>
                 <van-tag round :type="statusType(o.status)">{{ statusLabel(o.status) }}</van-tag>
               </div>
-              <div class="order-meta">下单人: {{ o.user_name }}</div>
-              <div class="order-amount">报酬: <strong>¥{{ (o.amount * 0.3).toFixed(2) }}</strong></div>
-              <div class="order-req">{{ o.requirements }}</div>
-              <div v-if="o.status === 'delivered'" class="freeze-info">⏳ 等待买家验收（7天自动验收）</div>
-              <div v-if="o.status === 'accepted'" class="accepted-info">✅ 验收通过，佣金已入账</div>
-              <van-button v-if="o.status === 'in_progress'" type="primary" size="small" round @click="handleDeliver(o.order_no, o.amount, o.template_name)">
-                提交交付
-              </van-button>
-              <van-button v-if="o.status === 'rejected'" type="warning" size="small" round plain @click="handleDeliver(o.order_no, o.amount, o.template_name)">
-                重新交付
-              </van-button>
+
+              <!-- 进度条 -->
+              <div v-if="o.creator_id" class="oc-progress">
+                <div class="oc-progress-bar">
+                  <div class="oc-progress-track" :class="'step-' + progressStep(o)">
+                    <div class="oc-progress-dot" :class="progressStep(o) >= 0 ? 'done' : ''">
+                      <van-icon v-if="progressStep(o) >= 0" name="checked" size="10" color="#fff" />
+                    </div>
+                    <div class="oc-progress-line" :class="progressStep(o) >= 1 ? 'done' : ''"></div>
+                    <div class="oc-progress-dot" :class="progressStep(o) >= 1 ? 'done' : (progressStep(o) === 0 ? 'active' : '')">
+                      <van-icon v-if="progressStep(o) >= 1" name="checked" size="10" color="#fff" />
+                    </div>
+                    <div class="oc-progress-line" :class="progressStep(o) >= 2 ? 'done' : ''"></div>
+                    <div class="oc-progress-dot" :class="progressStep(o) >= 2 ? 'done' : ''">
+                      <van-icon v-if="progressStep(o) >= 2" name="checked" size="10" color="#fff" />
+                    </div>
+                  </div>
+                  <div class="oc-progress-labels">
+                    <span>制作中</span>
+                    <span>已交付</span>
+                    <span>已验收</span>
+                  </div>
+                </div>
+                <!-- 超时倒计时 -->
+                <div v-if="o.status === 'in_progress'" class="oc-countdown" :class="o.hours_remaining <= 0 ? 'overdue' : (o.hours_remaining <= 2 ? 'urgent' : '')">
+                  <van-icon name="clock-o" size="12" />
+                  剩余 {{ formatCountdown(o.hours_remaining) }}
+                </div>
+              </div>
+
+              <div class="oc-body">
+                <div class="oc-row">
+                  <span class="oc-label">模板名称</span>
+                  <span class="oc-val">{{ o.template_name }}</span>
+                </div>
+                <div class="oc-row">
+                  <span class="oc-label">订单金额</span>
+                  <span class="oc-val">¥{{ o.order_amount?.toFixed(2) || '0.00' }}</span>
+                </div>
+                <div class="oc-row">
+                  <span class="oc-label">报酬</span>
+                  <span class="oc-val oc-commission">¥{{ o.commission_amount?.toFixed(2) || '0.00' }}</span>
+                </div>
+                <div class="oc-row">
+                  <span class="oc-label">下单用户</span>
+                  <span class="oc-val">{{ o.user_name || '未知' }}</span>
+                </div>
+                <div class="oc-row">
+                  <span class="oc-label">接单日期</span>
+                  <span class="oc-val">{{ formatTime(o.claimed_at) }}</span>
+                </div>
+                <div v-if="o.delivered_at" class="oc-row">
+                  <span class="oc-label">交付日期</span>
+                  <span class="oc-val">{{ formatTime(o.delivered_at) }}</span>
+                </div>
+                <div v-if="o.accepted_at" class="oc-row">
+                  <span class="oc-label">验收日期</span>
+                  <span class="oc-val oc-accepted">{{ formatTime(o.accepted_at) }}</span>
+                </div>
+                <div v-if="o.requirements" class="oc-req">
+                  <div class="oc-req-label">需求描述</div>
+                  <div class="oc-req-text">{{ o.requirements }}</div>
+                </div>
+              </div>
+
+              <div class="oc-actions">
+                <van-button v-if="o.status === 'in_progress'" type="primary" size="small" round block @click="handleDeliver(o.order_no, o.order_amount, o.template_name)">
+                  提交交付
+                </van-button>
+                <van-button v-if="o.status === 'rejected'" type="warning" size="small" round block plain @click="handleDeliver(o.order_no, o.order_amount, o.template_name)">
+                  重新交付
+                </van-button>
+                <div v-if="o.status === 'delivered'" class="oc-status-info oc-freeze">
+                  <van-icon name="clock-o" size="12" /> 等待买家验收（7天自动验收）
+                </div>
+                <div v-if="o.status === 'accepted' || o.status === 'completed'" class="oc-status-info oc-success">
+                  <van-icon name="checked" size="12" /> 验收通过，佣金已入账
+                </div>
+              </div>
             </div>
           </div>
         </van-tab>
@@ -480,14 +611,46 @@ onMounted(() => {
 
 .orders-section { margin-top: 5px; }
 .order-list { padding: 5px 0; }
+
+/* ========== 订单卡片 ========== */
 .order-card { background: white; border-radius: 10px; padding: 15px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.order-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.order-template { font-weight: 500; font-size: 14px; }
-.order-amount { font-size: 13px; color: #07c160; margin-bottom: 6px; }
-.order-req { font-size: 12px; color: #666; margin-bottom: 10px; padding: 8px; background: #f7f8fa; border-radius: 6px; line-height: 1.5; }
-.order-meta { font-size: 12px; color: #999; margin-bottom: 4px; }
-.freeze-info { font-size: 11px; color: #666; margin: 8px 0; padding: 6px 8px; background: #fffbe6; border-radius: 4px; border: 1px solid #ffe58f; }
-.accepted-info { font-size: 11px; color: #07c160; margin: 8px 0; padding: 6px 8px; background: #f0f9eb; border-radius: 4px; border: 1px solid #c2e7b0; }
+
+.oc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
+.oc-order-no { font-size: 13px; color: #999; font-family: monospace; }
+
+.oc-body { margin-bottom: 10px; }
+.oc-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+.oc-label { font-size: 13px; color: #999; min-width: 60px; }
+.oc-val { font-size: 13px; color: #323233; text-align: right; word-break: break-all; }
+.oc-commission { color: #07c160; font-weight: 600; }
+.oc-accepted { color: #07c160; }
+
+.oc-req { margin-top: 8px; padding: 8px 10px; background: #f7f8fa; border-radius: 6px; }
+.oc-req-label { font-size: 11px; color: #999; margin-bottom: 4px; }
+.oc-req-text { font-size: 12px; color: #666; line-height: 1.5; }
+
+/* ========== 进度条 ========== */
+.oc-progress { margin: 10px 0; }
+.oc-progress-bar { display: flex; flex-direction: column; align-items: center; }
+.oc-progress-track { display: flex; align-items: center; width: 100%; justify-content: space-between; padding: 0 10px; }
+.oc-progress-dot { width: 22px; height: 22px; border-radius: 50%; background: #ddd; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.3s; }
+.oc-progress-dot.done { background: #07c160; }
+.oc-progress-dot.active { background: #1989fa; }
+.oc-progress-line { flex: 1; height: 2px; background: #ddd; margin: 0 4px; transition: background 0.3s; }
+.oc-progress-line.done { background: #07c160; }
+.oc-progress-labels { display: flex; width: 100%; justify-content: space-between; padding: 0 10px; margin-top: 6px; }
+.oc-progress-labels span { font-size: 11px; color: #999; }
+
+/* 超时倒计时 */
+.oc-countdown { display: flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 12px; color: #666; padding: 4px 10px; background: #f0f9eb; border-radius: 4px; }
+.oc-countdown.urgent { color: #ff9800; background: #fff8e1; }
+.oc-countdown.overdue { color: #ee0a24; background: #fff2f0; }
+
+/* 操作区 */
+.oc-actions { margin-top: 10px; }
+.oc-status-info { display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 6px 10px; border-radius: 4px; margin-top: 5px; }
+.oc-freeze { color: #666; background: #fffbe6; border: 1px solid #ffe58f; }
+.oc-success { color: #07c160; background: #f0f9eb; border: 1px solid #c2e7b0; }
 
 .apply-form { padding: 10px 0; }
 .field-hint { font-size: 11px; color: #999; }

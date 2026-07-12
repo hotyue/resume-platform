@@ -1311,6 +1311,10 @@ async def download_by_order(order_no: str, db: Session = Depends(get_db)):
 @app.get("/api/v1/creator/orders")
 async def get_creator_orders(
     tab: str = "pending", db: Session = Depends(get_db), current_user: dict = Depends(require_creator)):
+    # 读取制作者佣金比例
+    cfg = db.query(m.SystemConfig).filter(m.SystemConfig.key == "creator_rate").first()
+    creator_rate = float(cfg.value) if cfg else 0.30
+
     query = db.query(m.Order, m.Template).join(m.Template).filter(
         m.Order.order_type.in_(("custom_service", "custom"))
     )
@@ -1321,10 +1325,41 @@ async def get_creator_orders(
     out = []
     for o, t in results:
         u = db.query(m.User).filter(m.User.id == o.user_id).first()
-        out.append({"order_no": o.order_no, "amount": o.amount, "status": o.status,
-             "requirements": o.custom_requirements, "created_at": str(o.created_at),
-             "template_name": t.name,
-             "user_name": u.username if u else "未知"})
+        commission_amt = round(o.amount * creator_rate, 2)
+
+        # 进度状态
+        delivery_status = "pending"
+        if o.status == "in_progress":
+            delivery_status = "progress"
+        elif o.status == "delivered":
+            delivery_status = "delivered"
+        elif o.status in ("accepted", "completed"):
+            delivery_status = "accepted"
+
+        # 超时剩余时间（仅制作中有效）
+        hours_remaining = None
+        if o.status == "in_progress" and o.claimed_at:
+            deadline = o.claimed_at + timedelta(hours=24)
+            remaining = (deadline - datetime.now()).total_seconds() / 3600
+            hours_remaining = round(remaining, 1)
+
+        out.append({
+            "order_no": o.order_no,
+            "creator_id": o.creator_id,
+            "order_amount": o.amount,
+            "commission_amount": commission_amt,
+            "commission_rate": creator_rate,
+            "status": o.status,
+            "requirements": o.custom_requirements,
+            "created_at": str(o.created_at),
+            "claimed_at": str(o.claimed_at) if o.claimed_at else None,
+            "delivered_at": str(o.delivered_at) if o.delivered_at else None,
+            "accepted_at": str(o.accepted_at) if o.accepted_at else None,
+            "delivery_status": delivery_status,
+            "hours_remaining": hours_remaining,
+            "template_name": t.name,
+            "user_name": u.username if u else "未知",
+        })
     return out
 
 
