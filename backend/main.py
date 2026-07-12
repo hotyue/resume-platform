@@ -244,6 +244,7 @@ def load_all_configs(db: Session) -> dict:
         "level2_rate": get_config(db, "level2_rate", 0.10),  # 兼容旧接口,分佣已硬编码
         "level3_rate": get_config(db, "level3_rate", 0.00),  # 已停用
         "deposit_amount": get_config(db, "deposit_amount", 20.0),
+        "auto_accept_hours": get_config(db, "auto_accept_hours", 168),
     }
 
 
@@ -377,6 +378,16 @@ def _update_team_size(user_id: int, db: Session):
         _update_team_size(user.parent_id, db)
 
 
+def get_auto_accept_hours(db: Session) -> int:
+    """读取自动验收时长（小时），默认 168（7天）"""
+    cfg = db.query(m.SystemConfig).filter(m.SystemConfig.key == "auto_accept_hours").first()
+    if cfg:
+        try:
+            return int(cfg.value)
+        except (ValueError, TypeError):
+            pass
+    return 168
+
 def get_ref_chain(ref_user_id: int, db: Session, rates: list = None) -> list:
     """获取推广链分佣
     ref_user_id: 起始用户ID
@@ -441,7 +452,8 @@ def create_freeze_pending(order: m.Order, db: Session):
     if order.commission_distributed:
         return
     amount = order.amount
-    freeze_until = datetime.now() + timedelta(days=7)
+    hours = get_auto_accept_hours(db)
+    freeze_until = datetime.now() + timedelta(hours=hours)
     pending_records = []
 
     if not order.creator_id:
@@ -974,10 +986,14 @@ async def get_system_config(db: Session = Depends(get_db), admin_user: dict = De
 async def update_system_config(
     req: UpdateSystemConfigReq, db: Session = Depends(get_db), admin_user: dict = Depends(require_admin)):
     valid_keys = ["download_price", "custom_price", "creator_rate",
-                  "level1_rate", "level2_rate", "level3_rate", "deposit_amount"]
+                  "level1_rate", "level2_rate", "level3_rate", "deposit_amount",
+                  "auto_accept_hours"]
     if req.key not in valid_keys:
         raise HTTPException(status_code=400, detail=f"无效的配置项: {req.key}")
-    if req.value < 0:
+    if req.key == "auto_accept_hours":
+        if not (24 <= req.value <= 720):
+            raise HTTPException(status_code=400, detail="自动验收时长必须在 24-720 小时之间")
+    elif req.value < 0:
         raise HTTPException(status_code=400, detail="配置值不能为负数")
     cfg = db.query(m.SystemConfig).filter(m.SystemConfig.key == req.key).first()
     if not cfg:
@@ -1336,12 +1352,18 @@ async def get_creator_orders(
         elif o.status in ("accepted", "completed"):
             delivery_status = "accepted"
 
-        # 超时剩余时间（仅制作中有效）
+        # 制作超时剩余时间（仅制作中有效）
         hours_remaining = None
         if o.status == "in_progress" and o.claimed_at:
             deadline = o.claimed_at + timedelta(hours=24)
             remaining = (deadline - datetime.now()).total_seconds() / 3600
             hours_remaining = round(remaining, 1)
+
+        # 验收倒计时（仅待验收有效）
+        accept_hours_remaining = None
+        if o.status == "delivered" and o.freeze_until:
+            remaining = (o.freeze_until - datetime.now()).total_seconds() / 3600
+            accept_hours_remaining = round(remaining, 1)
 
         out.append({
             "order_no": o.order_no,
@@ -1357,6 +1379,7 @@ async def get_creator_orders(
             "accepted_at": str(o.accepted_at) if o.accepted_at else None,
             "delivery_status": delivery_status,
             "hours_remaining": hours_remaining,
+            "accept_hours_remaining": accept_hours_remaining,
             "template_name": t.name,
             "user_name": u.username if u else "未知",
         })
@@ -1495,7 +1518,8 @@ async def deliver_order(
 
         order.status = "delivered"
         order.delivered_at = datetime.now()
-        order.freeze_until = datetime.now() + timedelta(days=7)
+        hours = get_auto_accept_hours(db)
+        order.freeze_until = datetime.now() + timedelta(hours=hours)
         reset_delivery_cycle(order, db)
         create_freeze_pending(order, db)
         db.commit()

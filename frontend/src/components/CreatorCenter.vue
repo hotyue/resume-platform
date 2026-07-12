@@ -288,6 +288,8 @@ onMounted(() => {
   fetchApplicationStatus()
   fetchOrders()
   fetchWallet()
+  // 每 60 秒刷新订单列表（倒计时更新）
+  setInterval(fetchOrders, 60000)
 })
 </script>
 
@@ -478,7 +480,7 @@ onMounted(() => {
                   重新交付
                 </van-button>
                 <div v-if="o.status === 'delivered'" class="oc-status-info oc-freeze">
-                  <van-icon name="clock-o" size="12" /> 等待买家验收（7天自动验收）
+                  <van-icon name="clock-o" size="12" /> 等待买家验收（距离自动验收 {{ formatCountdown(o.accept_hours_remaining) }}）
                 </div>
                 <div v-if="o.status === 'accepted' || o.status === 'completed'" class="oc-status-info oc-success">
                   <van-icon name="checked" size="12" /> 验收通过，佣金已入账

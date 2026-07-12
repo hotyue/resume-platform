@@ -333,6 +333,7 @@ const systemConfig = ref({
   level2_rate: 8,
   level3_rate: 5,
   deposit_amount: 20,
+  auto_accept_hours: 168,
 })
 const showConfigDialog = ref(false)
 const editingConfig = ref(null)
@@ -404,6 +405,7 @@ const configLabel = (key) => {
     level2_rate: '二级推广分佣（%）',
     level3_rate: '三级推广分佣（%）',
     deposit_amount: '保证金金额（元）',
+    auto_accept_hours: '自动验收时长（小时）',
   }
   return map[key] || key
 }
@@ -417,6 +419,7 @@ const configPlaceholder = (key) => {
     level2_rate: '如 8',
     level3_rate: '如 5',
     deposit_amount: '如 20',
+    auto_accept_hours: '24-720，如 168',
   }
   return map[key] || ''
 }
@@ -791,6 +794,10 @@ onMounted(() => {
           <div class="rate-card" @click="startEditConfig('deposit_amount')">
             <div class="rate-label">保证金金额</div>
             <div class="rate-value">¥{{ systemConfig.deposit_amount?.toFixed(2) }} <van-icon name="edit" /></div>
+          </div>
+          <div class="rate-card" @click="startEditConfig('auto_accept_hours')">
+            <div class="rate-label">自动验收时长</div>
+            <div class="rate-value">{{ systemConfig.auto_accept_hours || 168 }} 小时 <van-icon name="edit" /></div>
           </div>
         </div>
 
