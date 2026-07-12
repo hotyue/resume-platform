@@ -345,6 +345,21 @@ const roleTagType = (role) => {
   return map[role] || 'primary'
 }
 
+const formatTime = (t) => {
+  if (!t) return '—'
+  return t.replace('T', ' ').substring(0, 16)
+}
+
+const statusTagType = (s) => {
+  const map = { pending: 'warning', in_progress: 'primary', delivered: 'primary', accepted: 'success', completed: 'success', cancelled: 'danger', refunded: 'default' }
+  return map[s] || 'default'
+}
+
+const statusLabel = (s) => {
+  const map = { pending: '待处理', in_progress: '制作中', delivered: '已交付', accepted: '已验收', completed: '已完成', cancelled: '已取消', refunded: '已退款' }
+  return map[s] || s
+}
+
 onMounted(() => {
   fetchUserInfo().then(() => {
     fetchStats()
@@ -493,16 +508,58 @@ onMounted(() => {
           <div v-else-if="commissionList.length === 0" class="empty-hint">暂无佣金记录</div>
           <div v-else class="commission-list">
             <div class="list-header">共 {{ commissionList.length }} 条记录</div>
-            <div v-for="r in commissionList" :key="r.id" class="commission-item">
-              <div class="ci-left">
-                <div class="ci-level">
-                  <van-tag :type="r.level === 1 ? 'danger' : 'warning'" size="mini" round>
+            <div v-for="r in commissionList" :key="r.id" class="commission-card">
+              <div class="cc-header">
+                <div class="cc-left">
+                  <van-tag :type="r.level === 0 ? 'danger' : 'warning'" size="mini" round>
                     {{ r.level === 0 ? 'L1 30%' : 'L2 10%' }}
                   </van-tag>
+                  <span class="cc-order-no">{{ r.order_no }}</span>
                 </div>
-                <div class="ci-order">订单：{{ r.order_no }}</div>
+                <div class="cc-amount">+ ¥{{ r.amount.toFixed(2) }}</div>
               </div>
-              <div class="ci-amount">+ ¥{{ r.amount.toFixed(2) }}</div>
+              <div class="cc-body">
+                <div class="cc-row">
+                  <span class="cc-label">订单类型</span>
+                  <span class="cc-val">{{ r.order_type === 'custom_service' ? '定制简历' : '下载模板' }}</span>
+                </div>
+                <div class="cc-row">
+                  <span class="cc-label">订单金额</span>
+                  <span class="cc-val">¥{{ r.order_amount?.toFixed(2) || '0.00' }}</span>
+                </div>
+                <div class="cc-row">
+                  <span class="cc-label">下单用户</span>
+                  <span class="cc-val">{{ r.buyer_name || '未知' }}</span>
+                </div>
+                <div v-if="r.creator_name" class="cc-row">
+                  <span class="cc-label">制作者</span>
+                  <span class="cc-val">{{ r.creator_name }}</span>
+                </div>
+                <div v-if="r.template_name" class="cc-row">
+                  <span class="cc-label">模板名称</span>
+                  <span class="cc-val cc-template">{{ r.template_name }}</span>
+                </div>
+                <div class="cc-row">
+                  <span class="cc-label">下单日期</span>
+                  <span class="cc-val">{{ formatTime(r.ordered_at) }}</span>
+                </div>
+                <div v-if="r.delivered_at" class="cc-row">
+                  <span class="cc-label">交付日期</span>
+                  <span class="cc-val">{{ formatTime(r.delivered_at) }}</span>
+                </div>
+                <div v-if="r.accepted_at" class="cc-row">
+                  <span class="cc-label">验收日期</span>
+                  <span class="cc-val cc-accepted">{{ formatTime(r.accepted_at) }}</span>
+                </div>
+                <div class="cc-row">
+                  <span class="cc-label">订单状态</span>
+                  <span class="cc-val">
+                    <van-tag :type="statusTagType(r.order_status)" size="mini" round>
+                      {{ statusLabel(r.order_status) }}
+                    </van-tag>
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </van-tab>
@@ -673,13 +730,17 @@ onMounted(() => {
 
 /* 佣金明细 */
 .commission-list { padding: 5px 0; }
-.list-header { font-size: 12px; color: #999; text-align: center; margin-bottom: 10px; }
-.commission-item { display: flex; align-items: center; justify-content: space-between; background: white; border-radius: 8px; padding: 12px; margin-bottom: 6px; }
-.ci-left { display: flex; flex-direction: column; gap: 4px; }
-.ci-level { display: flex; align-items: center; gap: 4px; }
-.ci-rate { font-size: 11px; color: #999; }
-.ci-order { font-size: 12px; color: #666; }
-.ci-amount { font-size: 16px; font-weight: bold; color: #07c160; }
+.commission-card { background: white; border-radius: 10px; padding: 12px; margin-bottom: 8px; border: 1px solid #f0f0f0; }
+.cc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #f5f5f5; }
+.cc-left { display: flex; align-items: center; gap: 6px; }
+.cc-order-no { font-size: 13px; color: #333; font-weight: 500; }
+.cc-amount { font-size: 16px; font-weight: bold; color: #07c160; }
+.cc-body { display: flex; flex-direction: column; gap: 5px; }
+.cc-row { display: flex; justify-content: space-between; font-size: 12px; line-height: 1.8; }
+.cc-label { color: #999; }
+.cc-val { color: #333; font-weight: 400; }
+.cc-template { color: #1989fa; }
+.cc-accepted { color: #07c160; font-weight: 500; }
 
 /* 邀请 */
 .invite-panel { padding: 10px 0; }

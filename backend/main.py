@@ -392,7 +392,7 @@ def get_ref_chain(ref_user_id: int, db: Session, rates: list = None) -> list:
         user = db.query(m.User).filter(m.User.id == uid).first()
         if not user:
             break
-        chain.append((uid, level + 1, rates[level]))
+        chain.append((uid, level, rates[level]))
         uid = user.parent_id
     return chain
 
@@ -1776,17 +1776,50 @@ async def get_team(
 
 @app.get("/api/v1/user/commission-history")
 async def get_commission_history(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """获取用户佣金明细"""
+    """获取用户佣金明细（关联订单信息）"""
     uid = current_user["id"]
     records = db.query(m.CommissionRecord).filter(m.CommissionRecord.user_id == uid).order_by(m.CommissionRecord.created_at.desc()).all()
-    return [{
-        "id": r.id,
-        "order_no": r.order_no,
-        "level": r.level,
-        "amount": r.amount,
-        "rate": r.rate,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
-    } for r in records]
+    result = []
+    for r in records:
+        order = db.query(m.Order).filter(m.Order.order_no == r.order_no).first()
+        if not order:
+            continue
+
+        # 下单者信息
+        buyer = db.query(m.User).filter(m.User.id == order.user_id).first()
+        buyer_name = buyer.username if buyer else "未知"
+
+        # 制作者信息
+        creator_name = ""
+        if order.creator_id:
+            creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
+            creator_name = creator.username if creator else "未知"
+
+        # 模板名称
+        template_name = ""
+        if order.template_id:
+            template = db.query(m.Template).filter(m.Template.id == order.template_id).first()
+            template_name = template.name if template else ""
+
+        item = {
+            "id": r.id,
+            "order_no": r.order_no,
+            "level": r.level,
+            "amount": r.amount,
+            "rate": r.rate,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "buyer_name": buyer_name,
+            "creator_name": creator_name,
+            "template_name": template_name,
+            "order_type": order.order_type,
+            "order_amount": order.amount,
+            "order_status": order.status,
+            "ordered_at": order.created_at.isoformat() if order.created_at else None,
+            "delivered_at": order.delivered_at.isoformat() if order.delivered_at else None,
+            "accepted_at": order.accepted_at.isoformat() if order.accepted_at else None,
+        }
+        result.append(item)
+    return result
 
 
 @app.get("/api/v1/user/stats/{user_id}")
