@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
-import { showToast, showSuccessToast, showConfirmDialog, showDialog } from 'vant'
+import { ref, onMounted, computed } from 'vue'
+import { showToast, showSuccessToast, showConfirmDialog } from 'vant'
 import request from '../api/request.js'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
@@ -8,8 +8,6 @@ import DeliveryDialog from './DeliveryDialog.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
-
-const activeTab = ref(0)
 
 // 交付弹窗
 const showDeliveryDialog = ref(false)
@@ -51,7 +49,6 @@ const onAgree = () => {
 }
 
 // 订单相关
-const orderTab = ref('pending')
 const orders = ref([])
 const loadingOrders = ref(false)
 
@@ -162,7 +159,7 @@ const submitApplication = async () => {
 const fetchOrders = async () => {
   loadingOrders.value = true
   try {
-    const res = await request.get(`/creator/orders?tab=${orderTab.value}`)
+    const res = await request.get('/creator/orders?tab=mine')
     orders.value = res.data
   } catch (e) {
     if (!auth.isLoggedIn) return
@@ -173,20 +170,6 @@ const fetchOrders = async () => {
     }
   } finally {
     loadingOrders.value = false
-  }
-}
-
-const handleTakeOrder = async (orderNo) => {
-  try {
-    const res = await request.post('/creator/take', { order_no: orderNo })
-    showSuccessToast('接单成功')
-    await fetchOrders()
-  } catch (e) {
-    if (e.response?.status === 403) {
-      showToast('只有制作者才能接单')
-    } else {
-      showToast(e.response?.data?.detail || '接单失败')
-    }
   }
 }
 
@@ -273,17 +256,6 @@ const progressStep = (order) => {
   return -1
 }
 
-const onOrderTabChange = (index) => {
-  orderTab.value = index === 0 ? 'pending' : 'mine'
-  fetchOrders()
-}
-
-// Watch activeTab changes to ensure data refreshes on every switch
-watch(activeTab, (index) => {
-  orderTab.value = index === 0 ? 'pending' : 'mine'
-  fetchOrders()
-})
-
 onMounted(() => {
   fetchApplicationStatus()
   fetchOrders()
@@ -356,140 +328,95 @@ onMounted(() => {
 
     <!-- 已通过 → 显示订单管理 -->
     <div v-if="appStatus === 'approved'" class="orders-section">
-      <van-tabs v-model:active="activeTab" @change="onOrderTabChange" color="#07c160">
-        <van-tab title="待接单">
-          <div v-if="loadingOrders" class="loading">加载中...</div>
-          <div v-else-if="orders.length === 0" class="empty">暂无待接订单</div>
-          <div v-else class="order-list">
-            <div v-for="o in orders" :key="o.order_no" class="order-card">
-              <div class="oc-header">
-                <span class="oc-order-no">ORD-{{ o.order_no ? o.order_no.slice(-8) : '' }}</span>
-                <van-tag round :type="statusType(o.status)">{{ statusLabel(o.status) }}</van-tag>
-              </div>
-              <div class="oc-body">
-                <div class="oc-row">
-                  <span class="oc-label">模板名称</span>
-                  <span class="oc-val">{{ o.template_name }}</span>
-                </div>
-                <div class="oc-row">
-                  <span class="oc-label">订单金额</span>
-                  <span class="oc-val">¥{{ o.order_amount?.toFixed(2) || '0.00' }}</span>
-                </div>
-                <div class="oc-row">
-                  <span class="oc-label">报酬</span>
-                  <span class="oc-val oc-commission">¥{{ o.commission_amount?.toFixed(2) || '0.00' }}</span>
-                </div>
-                <div class="oc-row">
-                  <span class="oc-label">下单用户</span>
-                  <span class="oc-val">{{ o.user_name || '未知' }}</span>
-                </div>
-                <div class="oc-row">
-                  <span class="oc-label">下单日期</span>
-                  <span class="oc-val">{{ formatTime(o.created_at) }}</span>
-                </div>
-                <div v-if="o.requirements" class="oc-req">
-                  <div class="oc-req-label">需求描述</div>
-                  <div class="oc-req-text">{{ o.requirements }}</div>
-                </div>
-              </div>
-              <van-button type="primary" size="small" round block @click="handleTakeOrder(o.order_no)">
-                立即接单
-              </van-button>
-            </div>
+      <div v-if="loadingOrders" class="loading">加载中...</div>
+      <div v-else-if="orders.length === 0" class="empty">暂无订单</div>
+      <div v-else class="order-list">
+        <div v-for="o in orders" :key="o.order_no" class="order-card">
+          <div class="oc-header">
+            <span class="oc-order-no">ORD-{{ o.order_no ? o.order_no.slice(-8) : '' }}</span>
+            <van-tag round :type="statusType(o.status)">{{ statusLabel(o.status) }}</van-tag>
           </div>
-        </van-tab>
-        <van-tab title="我的订单">
-          <div v-if="loadingOrders" class="loading">加载中...</div>
-          <div v-else-if="orders.length === 0" class="empty">暂无订单</div>
-          <div v-else class="order-list">
-            <div v-for="o in orders" :key="o.order_no" class="order-card">
-              <div class="oc-header">
-                <span class="oc-order-no">ORD-{{ o.order_no ? o.order_no.slice(-8) : '' }}</span>
-                <van-tag round :type="statusType(o.status)">{{ statusLabel(o.status) }}</van-tag>
-              </div>
 
-              <!-- 进度条 -->
-              <div v-if="o.creator_id" class="oc-progress">
-                <div class="oc-progress-bar">
-                  <div class="oc-progress-track" :class="'step-' + progressStep(o)">
-                    <div class="oc-progress-dot" :class="progressStep(o) >= 0 ? 'done' : ''">
-                      <van-icon v-if="progressStep(o) >= 0" name="checked" size="10" color="#fff" />
-                    </div>
-                    <div class="oc-progress-line" :class="progressStep(o) >= 1 ? 'done' : ''"></div>
-                    <div class="oc-progress-dot" :class="progressStep(o) >= 1 ? 'done' : (progressStep(o) === 0 ? 'active' : '')">
-                      <van-icon v-if="progressStep(o) >= 1" name="checked" size="10" color="#fff" />
-                    </div>
-                    <div class="oc-progress-line" :class="progressStep(o) >= 2 ? 'done' : ''"></div>
-                    <div class="oc-progress-dot" :class="progressStep(o) >= 2 ? 'done' : ''">
-                      <van-icon v-if="progressStep(o) >= 2" name="checked" size="10" color="#fff" />
-                    </div>
-                  </div>
-                  <div class="oc-progress-labels">
-                    <span>制作中</span>
-                    <span>已交付</span>
-                    <span>已验收</span>
-                  </div>
+          <!-- 进度条 -->
+          <div v-if="o.creator_id" class="oc-progress">
+            <div class="oc-progress-bar">
+              <div class="oc-progress-track" :class="'step-' + progressStep(o)">
+                <div class="oc-progress-dot" :class="progressStep(o) >= 0 ? 'done' : ''">
+                  <van-icon v-if="progressStep(o) >= 0" name="checked" size="10" color="#fff" />
                 </div>
-                <!-- 超时倒计时 -->
-                <div v-if="o.status === 'in_progress'" class="oc-countdown" :class="o.hours_remaining <= 0 ? 'overdue' : (o.hours_remaining <= 2 ? 'urgent' : '')">
-                  <van-icon name="clock-o" size="12" />
-                  剩余 {{ formatCountdown(o.hours_remaining) }}
+                <div class="oc-progress-line" :class="progressStep(o) >= 1 ? 'done' : ''"></div>
+                <div class="oc-progress-dot" :class="progressStep(o) >= 1 ? 'done' : (progressStep(o) === 0 ? 'active' : '')">
+                  <van-icon v-if="progressStep(o) >= 1" name="checked" size="10" color="#fff" />
+                </div>
+                <div class="oc-progress-line" :class="progressStep(o) >= 2 ? 'done' : ''"></div>
+                <div class="oc-progress-dot" :class="progressStep(o) >= 2 ? 'done' : ''">
+                  <van-icon v-if="progressStep(o) >= 2" name="checked" size="10" color="#fff" />
                 </div>
               </div>
-
-              <div class="oc-body">
-                <div class="oc-row">
-                  <span class="oc-label">模板名称</span>
-                  <span class="oc-val">{{ o.template_name }}</span>
-                </div>
-                <div class="oc-row">
-                  <span class="oc-label">订单金额</span>
-                  <span class="oc-val">¥{{ o.order_amount?.toFixed(2) || '0.00' }}</span>
-                </div>
-                <div class="oc-row">
-                  <span class="oc-label">报酬</span>
-                  <span class="oc-val oc-commission">¥{{ o.commission_amount?.toFixed(2) || '0.00' }}</span>
-                </div>
-                <div class="oc-row">
-                  <span class="oc-label">下单用户</span>
-                  <span class="oc-val">{{ o.user_name || '未知' }}</span>
-                </div>
-                <div class="oc-row">
-                  <span class="oc-label">接单日期</span>
-                  <span class="oc-val">{{ formatTime(o.claimed_at) }}</span>
-                </div>
-                <div v-if="o.delivered_at" class="oc-row">
-                  <span class="oc-label">交付日期</span>
-                  <span class="oc-val">{{ formatTime(o.delivered_at) }}</span>
-                </div>
-                <div v-if="o.accepted_at" class="oc-row">
-                  <span class="oc-label">验收日期</span>
-                  <span class="oc-val oc-accepted">{{ formatTime(o.accepted_at) }}</span>
-                </div>
-                <div v-if="o.requirements" class="oc-req">
-                  <div class="oc-req-label">需求描述</div>
-                  <div class="oc-req-text">{{ o.requirements }}</div>
-                </div>
-              </div>
-
-              <div class="oc-actions">
-                <van-button v-if="o.status === 'in_progress'" type="primary" size="small" round block @click="handleDeliver(o.order_no, o.order_amount, o.template_name)">
-                  提交交付
-                </van-button>
-                <van-button v-if="o.status === 'rejected'" type="warning" size="small" round block plain @click="handleDeliver(o.order_no, o.order_amount, o.template_name)">
-                  重新交付
-                </van-button>
-                <div v-if="o.status === 'delivered'" class="oc-status-info oc-freeze">
-                  <van-icon name="clock-o" size="12" /> 等待买家验收（距离自动验收 {{ formatCountdown(o.accept_hours_remaining) }}）
-                </div>
-                <div v-if="o.status === 'accepted' || o.status === 'completed'" class="oc-status-info oc-success">
-                  <van-icon name="checked" size="12" /> 验收通过，佣金已入账
-                </div>
+              <div class="oc-progress-labels">
+                <span>制作中</span>
+                <span>已交付</span>
+                <span>已验收</span>
               </div>
             </div>
+            <!-- 超时倒计时 -->
+            <div v-if="o.status === 'in_progress'" class="oc-countdown" :class="o.hours_remaining <= 0 ? 'overdue' : (o.hours_remaining <= 2 ? 'urgent' : '')">
+              <van-icon name="clock-o" size="12" />
+              剩余 {{ formatCountdown(o.hours_remaining) }}
+            </div>
           </div>
-        </van-tab>
-      </van-tabs>
+
+          <div class="oc-body">
+            <div class="oc-row">
+              <span class="oc-label">模板名称</span>
+              <span class="oc-val">{{ o.template_name }}</span>
+            </div>
+            <div class="oc-row">
+              <span class="oc-label">订单金额</span>
+              <span class="oc-val">¥{{ o.order_amount?.toFixed(2) || '0.00' }}</span>
+            </div>
+            <div class="oc-row">
+              <span class="oc-label">报酬</span>
+              <span class="oc-val oc-commission">¥{{ o.commission_amount?.toFixed(2) || '0.00' }}</span>
+            </div>
+            <div class="oc-row">
+              <span class="oc-label">下单用户</span>
+              <span class="oc-val">{{ o.user_name || '未知' }}</span>
+            </div>
+            <div class="oc-row">
+              <span class="oc-label">接单日期</span>
+              <span class="oc-val">{{ formatTime(o.claimed_at) }}</span>
+            </div>
+            <div v-if="o.delivered_at" class="oc-row">
+              <span class="oc-label">交付日期</span>
+              <span class="oc-val">{{ formatTime(o.delivered_at) }}</span>
+            </div>
+            <div v-if="o.accepted_at" class="oc-row">
+              <span class="oc-label">验收日期</span>
+              <span class="oc-val oc-accepted">{{ formatTime(o.accepted_at) }}</span>
+            </div>
+            <div v-if="o.requirements" class="oc-req">
+              <div class="oc-req-label">需求描述</div>
+              <div class="oc-req-text">{{ o.requirements }}</div>
+            </div>
+          </div>
+
+          <div class="oc-actions">
+            <van-button v-if="o.status === 'in_progress'" type="primary" size="small" round block @click="handleDeliver(o.order_no, o.order_amount, o.template_name)">
+              提交交付
+            </van-button>
+            <van-button v-if="o.status === 'rejected'" type="warning" size="small" round block plain @click="handleDeliver(o.order_no, o.order_amount, o.template_name)">
+              重新交付
+            </van-button>
+            <div v-if="o.status === 'delivered'" class="oc-status-info oc-freeze">
+              <van-icon name="clock-o" size="12" /> 等待买家验收（距离自动验收 {{ formatCountdown(o.accept_hours_remaining) }}）
+            </div>
+            <div v-if="o.status === 'accepted' || o.status === 'completed'" class="oc-status-info oc-success">
+              <van-icon name="checked" size="12" /> 验收通过，佣金已入账
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 申请表单弹窗 -->
