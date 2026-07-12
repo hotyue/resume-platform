@@ -21,12 +21,13 @@ watch(() => route.query.ref, (ref) => {
 
 const isLoggedIn = computed(() => auth.isLoggedIn)
 const isAdmin = computed(() => auth.isAdmin)
+const isCreator = computed(() => auth.isCreator)
 
 // Tab 定义：根据角色动态生成
 const tabs = computed(() => [
   { label: '模板商城', icon: 'home-o', path: '/' },
   { label: '众包大厅', icon: 'friends-o', path: '/crowd' },
-  { label: '制作者中心', icon: 'gem-o', path: '/creator' },
+  ...(isCreator.value ? [{ label: '制作者中心', icon: 'gem-o', path: '/creator' }] : []),
   ...(isAdmin.value ? [{ label: '管理后台', icon: 'manager-o', path: '/admin' }] : []),
   { label: '我的', icon: 'user-o', path: '/user' },
 ])

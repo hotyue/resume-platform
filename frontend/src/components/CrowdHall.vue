@@ -89,8 +89,8 @@ onMounted(() => {
   <div class="crowd-hall">
     <!-- 非制作者提示 -->
     <div v-if="!isCreator" class="not-creator">
-      <van-empty description="请先申请成为制作者">
-        <van-button type="primary" round to="/creator">去申请</van-button>
+      <van-empty description="申请加入制作者，即可接单赚取报酬">
+        <van-button type="primary" round to="/creator">立即申请</van-button>
       </van-empty>
     </div>
 
