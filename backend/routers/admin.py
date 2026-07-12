@@ -415,8 +415,10 @@ async def admin_stats(
     rejected_count = db.query(models.CreatorApplication).filter(
         models.CreatorApplication.status == "rejected"
     ).count()
-    creator_count = db.query(models.User).filter(models.User.role == "creator").count()
-    promoter_count = db.query(models.User).filter(models.User.role == "promoter").count()
+    creator_count = db.query(models.CreatorApplication).filter(
+        models.CreatorApplication.status == "approved"
+    ).count()
+    promoter_count = db.query(models.User).filter(models.User.team_size > 0).count()
     total_users = db.query(models.User).count()
     total_revenue = db.query(func.coalesce(func.sum(models.Order.amount), 0)).filter(
         models.Order.status.in_(["paid", "processing", "completed"])

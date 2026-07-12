@@ -432,7 +432,7 @@ def distribute_commission(order: m.Order, db: Session):
 
 
 def create_freeze_pending(order: m.Order, db: Session):
-    """定制订单提交作品时创建冻结记录
+    """定制订单交付时创建冻结记录（不产生分佣记录，验收后才产生）
 
     推荐分佣逻辑：
     - L1 (30%) = 制作者本人
@@ -455,10 +455,6 @@ def create_freeze_pending(order: m.Order, db: Session):
         role_type="creator", amount=creator_amt, rate=0.30,
         freeze_until=freeze_until,
     ))
-    db.add(m.CommissionRecord(
-        order_no=order.order_no, user_id=order.creator_id,
-        level=0, amount=creator_amt, rate=0.30,
-    ))
 
     # L2: 制作者的上级 10%
     creator = db.query(m.User).filter(m.User.id == order.creator_id).first()
@@ -469,10 +465,6 @@ def create_freeze_pending(order: m.Order, db: Session):
             role_type="referral", amount=parent_amt, rate=0.10,
             freeze_until=freeze_until,
         ))
-        db.add(m.CommissionRecord(
-            order_no=order.order_no, user_id=creator.parent_id,
-            level=1, amount=parent_amt, rate=0.10,
-        ))
 
     if pending_records:
         db.add_all(pending_records)
@@ -480,7 +472,7 @@ def create_freeze_pending(order: m.Order, db: Session):
 
 
 def settle_custom_commission(order: m.Order, db: Session):
-    """验收通过 — 释放冻结佣金，加统计字段和余额"""
+    """验收通过 — 释放冻结佣金，创建分佣记录，加统计字段和余额"""
     pending = db.query(m.CommissionPending).filter(
         m.CommissionPending.order_no == order.order_no,
         m.CommissionPending.status == "pending"
@@ -494,6 +486,14 @@ def settle_custom_commission(order: m.Order, db: Session):
             else:
                 user.referral_commission += p.amount
             user.wallet_balance += p.amount
+
+        # 创建分佣记录（验收后才产生）
+        level = 0 if p.role_type == "creator" else 1
+        db.add(m.CommissionRecord(
+            order_no=order.order_no, user_id=p.user_id,
+            level=level, amount=p.amount, rate=p.rate,
+        ))
+
         p.status = "released"
         p.released_at = now
 
@@ -506,9 +506,22 @@ async def login(req: LoginReq, db: Session = Depends(get_db)):
     if not user or not auth.verify_password(req.password, user.password_hash or ""):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = auth.create_token(user.id, user.username, user.role)
+
+    # 构建 roles 数组
+    roles = [user.role]
+    app = db.query(m.CreatorApplication).filter(
+        m.CreatorApplication.user_id == user.id,
+        m.CreatorApplication.status == "approved"
+    ).first()
+    if app:
+        roles.append("creator")
+    if user.team_size > 0:
+        roles.append("promoter")
+
     return {
         "access_token": token, "token_type": "bearer",
         "user": {"id": user.id, "username": user.username, "role": user.role,
+                 "roles": roles,
                  "wallet_balance": round(user.wallet_balance, 2),
                  "deposit_frozen": round(user.deposit_frozen, 2)},
     }
@@ -548,16 +561,12 @@ async def register(req: RegisterReq, db: Session = Depends(get_db)):
             user.parent_id = parent.id
             # 递增 team_size（含上级链）
             _update_team_size(parent.id, db)
-            # 自动晋升为推广员
-            if parent.role not in ("admin",):
-                parent.role = "promoter"
+            # 推广者身份通过 team_size > 0 动态判断，不修改 user.role
     elif req.ref_user_id:
         parent = db.query(m.User).filter(m.User.id == req.ref_user_id).first()
         if parent:
             user.parent_id = parent.id
             _update_team_size(parent.id, db)
-            if parent.role not in ("admin",):
-                parent.role = "promoter"
 
     db.add(user)
     db.commit()
@@ -578,21 +587,33 @@ async def get_me(current_user: dict = Depends(get_current_user), db: Session = D
         raise HTTPException(status_code=404, detail="用户不存在")
     invite_code = f"INV{user.id:06d}"
     invite_url = f"{os.getenv('APP_BASE_URL', 'http://localhost:5173')}/?ref={invite_code}"
+    # 计算用户角色标签
+    roles = [user.role]  # 基础身份：user 或 admin
+    # 制作者：有审批通过的申请
+    has_approved = db.query(m.CreatorApplication).filter(
+        m.CreatorApplication.user_id == user.id,
+        m.CreatorApplication.status == "approved"
+    ).first()
+    if has_approved:
+        roles.append("creator")
+    # 推广者：有下级用户
+    if (user.team_size or 0) > 0:
+        roles.append("promoter")
     return {
         "id": user.id,
         "username": user.username,
         "role": user.role,
-        "wallet_balance": round(user.wallet_balance, 2),
-        "deposit_frozen": round(user.deposit_frozen, 2),
+        "roles": roles,
+        "wallet_balance": round(user.wallet_balance or 0, 2),
+        "deposit_frozen": round(user.deposit_frozen or 0, 2),
         "available_balance": round(user.available_balance, 2),
         "invite_code": invite_code,
         "invite_url": invite_url,
         "alipay_account": user.alipay_account,
         "wechat_account": user.wechat_account,
-        "total_withdrawn": round(user.total_withdrawn, 2),
-        "referral_commission": round(user.referral_commission, 2),
-        "making_commission": round(user.making_commission, 2),
-        "team_size": user.team_size,
+        "total_withdrawn": round(user.total_withdrawn or 0, 2),
+        "total_commission": round((user.referral_commission or 0) + (user.making_commission or 0), 2),
+        "team_size": user.team_size or 0,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
 
@@ -642,11 +663,11 @@ async def recharge(req: RechargeReq, db: Session = Depends(get_db),
 async def get_wallet(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     user = db.query(m.User).filter(m.User.id == current_user["id"]).first()
     return {
-        "wallet_balance": round(user.wallet_balance, 2),
-        "deposit_frozen": round(user.deposit_frozen, 2),
+        "wallet_balance": round(user.wallet_balance or 0, 2),
+        "deposit_frozen": round(user.deposit_frozen or 0, 2),
         "available_balance": round(user.available_balance, 2),
         "deposit_amount": round(get_deposit_amount(db), 2),
-        "total_withdrawn": round(user.total_withdrawn, 2),
+        "total_withdrawn": round(user.total_withdrawn or 0, 2),
     }
 
 
@@ -727,7 +748,12 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
     强制退出：清除制作者身份，未完成订单重新发布
     """
     user = db.query(m.User).filter(m.User.id == current_user["id"]).first()
-    if user.role != "creator":
+    # 制作者身份通过 creator_applications 判断，不检查 user.role
+    approved_app = db.query(m.CreatorApplication).filter(
+        m.CreatorApplication.user_id == current_user["id"],
+        m.CreatorApplication.status == "approved"
+    ).first()
+    if not approved_app:
         raise HTTPException(status_code=400, detail="当前不是制作者")
 
     # 检查未完成订单
@@ -747,21 +773,18 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
         # 强制退出：扣除全部余额 + 订单重新发布
         balance_deducted = user.wallet_balance
         user.wallet_balance = 0.0
-        user.role = "user"
-        user.deposit_frozen = 0.0  # 清除门槛标识
+        user.deposit_frozen = 0.0
 
         # 撤销申请记录
-        app = db.query(m.CreatorApplication).filter(m.CreatorApplication.user_id == current_user["id"]).first()
-        if app:
-            app.status = "revoked"
-            app.reviewed_at = datetime.now()
+        approved_app.status = "revoked"
+        approved_app.reviewed_at = datetime.now()
 
         for order in pending_orders:
             order.creator_id = None
             order.claimed_at = None
             order.status = "awaiting_claim"
             audit_log(db, current_user["id"], order.order_no, "creator_exit_forced",
-                      f"制作者强制退出，订单重新发布至众包大厅")
+                      "制作者强制退出，订单重新发布至众包大厅")
 
         audit_log(db, current_user["id"], "", "creator_exit_forced",
                   f"强制退出制作者，扣除余额 ¥{balance_deducted}，{len(pending_orders)} 个订单重新发布")
@@ -773,14 +796,11 @@ async def resign_creator(req: ResignCreatorReq, db: Session = Depends(get_db), c
         }
 
     # 无未完成订单：正常退出
-    user.role = "user"
-    user.deposit_frozen = 0.0  # 清除门槛标识
+    user.deposit_frozen = 0.0
 
     # 撤销申请记录
-    app = db.query(m.CreatorApplication).filter(m.CreatorApplication.user_id == current_user["id"]).first()
-    if app:
-        app.status = "revoked"
-        app.reviewed_at = datetime.now()
+    approved_app.status = "revoked"
+    approved_app.reviewed_at = datetime.now()
 
     audit_log(db, current_user["id"], "", "creator_exit_success",
               "正常退出制作者")
@@ -822,9 +842,8 @@ async def review_application(
     a.review_remark = req.remark
     a.reviewed_at = datetime.now()
     if req.status == "approved":
-        user = db.query(m.User).filter(m.User.id == a.user_id).first()
-        if user:
-            user.role = "creator"
+        # 制作者身份通过 creator_applications 记录体现，不修改 user.role
+        pass
     db.commit()
     return {"id": a.id, "status": a.status}
 
@@ -1048,7 +1067,7 @@ async def admin_update_user(
     user = db.query(m.User).filter(m.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
-    if req.role and req.role in ("user", "promoter", "creator", "admin"):
+    if req.role and req.role in ("user", "admin"):
         user.role = req.role
     if req.wallet_balance is not None and req.wallet_balance >= 0:
         user.wallet_balance = req.wallet_balance
@@ -1116,7 +1135,12 @@ async def admin_dashboard(db: Session = Depends(get_db), admin_user: dict = Depe
     pending_withdrawals = db.query(m.WithdrawRequest).filter(m.WithdrawRequest.status == "pending").count()
     pending_apps = db.query(m.CreatorApplication).filter(m.CreatorApplication.status == "pending").count()
     pending_refunds = db.query(m.RefundRequest).filter(m.RefundRequest.status == "pending").count()
-    role_stats = {r: db.query(m.User).filter(m.User.role == r).count() for r in ["user", "promoter", "creator"]}
+    role_stats = {r: db.query(m.User).filter(m.User.role == r).count() for r in ["user", "admin"]}
+    # 制作者和推广者通过关联表统计
+    role_stats["creator"] = db.query(m.CreatorApplication).filter(
+        m.CreatorApplication.status == "approved"
+    ).count()
+    role_stats["promoter"] = db.query(m.User).filter(m.User.team_size > 0).count()
     status_stats = {s: db.query(m.Order).filter(m.Order.status == s).count() for s in
                     ["pending", "paid", "awaiting_claim", "in_progress", "delivered", "accepted", "refunded"]}
     trend = []
@@ -1143,8 +1167,10 @@ async def admin_stats(db: Session = Depends(get_db), admin_user: dict = Depends(
     paid_statuses = ["paid", "processing", "completed", "accepted", "in_progress", "delivered", "awaiting_claim"]
     return {
         "total_users": db.query(m.User).count(),
-        "creator_count": db.query(m.User).filter(m.User.role == "creator").count(),
-        "promoter_count": db.query(m.User).filter(m.User.role == "promoter").count(),
+        "creator_count": db.query(m.CreatorApplication).filter(
+            m.CreatorApplication.status == "approved"
+        ).count(),
+        "promoter_count": db.query(m.User).filter(m.User.team_size > 0).count(),
         "pending_approvals": db.query(m.CreatorApplication).filter(m.CreatorApplication.status == "pending").count(),
         "total_revenue": round((db.query(func.coalesce(func.sum(m.Order.amount), 0)).filter(
             m.Order.status.in_(paid_statuses)).scalar()) or 0.0, 2),
@@ -1366,83 +1392,91 @@ async def deliver_order(
     current_user: dict = Depends(require_creator),
 ):
     """交付订单 — 双文件上传（PDF + Word）"""
-    # 1. 查找订单
-    order = db.query(m.Order).filter(
-        m.Order.order_no == order_no,
-        m.Order.creator_id == current_user["id"],
-        m.Order.status == "in_progress",
-    ).first()
-    if not order:
-        raise HTTPException(status_code=400, detail="订单异常或无权操作")
-
-    # 2. 校验 PDF 文件
-    if not pdf_file.filename or not validate_file_extension(pdf_file.filename, "pdf"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"PDF 文件格式不正确，仅支持 .pdf（当前: {pdf_file.filename}）",
-        )
-
-    # 3. 校验 Word 文件
-    if not word_file.filename or not validate_file_extension(word_file.filename, "word"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Word 文件格式不正确，仅支持 .doc / .docx（当前: {word_file.filename}）",
-        )
-
-    # 4. 读取文件内容并校验大小
-    pdf_data = await pdf_file.read()
-    word_data = await word_file.read()
-
-    if len(pdf_data) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"PDF 文件过大（{len(pdf_data) / 1024 / 1024:.1f}MB），最大 10MB",
-        )
-    if len(word_data) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Word 文件过大（{len(word_data) / 1024 / 1024:.1f}MB），最大 10MB",
-        )
-
-    # 5. 上传到 S3
+    import traceback as tb
+    from storage import get_storage, StorageError
     try:
-        from storage import get_storage, StorageError
-        storage = get_storage()
-    except StorageError as e:
-        raise HTTPException(status_code=503, detail=f"S3 存储未配置: {e}")
+        # 1. 查找订单
+        order = db.query(m.Order).filter(
+            m.Order.order_no == order_no,
+            m.Order.creator_id == current_user["id"],
+            m.Order.status == "in_progress",
+        ).first()
+        if not order:
+            raise HTTPException(status_code=400, detail="订单异常或无权操作")
 
-    pdf_key = storage.build_key(order.order_no, pdf_file.filename)
-    word_key = storage.build_key(order.order_no, word_file.filename)
+        # 2. 校验 PDF 文件
+        if not pdf_file.filename or not validate_file_extension(pdf_file.filename, "pdf"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"PDF 文件格式不正确，仅支持 .pdf（当前: {pdf_file.filename}）",
+            )
 
-    storage.upload_file(pdf_key, pdf_data, get_file_content_type(pdf_file.filename))
-    storage.upload_file(word_key, word_data, get_file_content_type(word_file.filename))
+        # 3. 校验 Word 文件
+        if not word_file.filename or not validate_file_extension(word_file.filename, "word"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Word 文件格式不正确，仅支持 .doc / .docx（当前: {word_file.filename}）",
+            )
 
-    # 6. 保存交付记录
-    delivery = m.Delivery(
-        order_no=order_no,
-        pdf_key=pdf_key,
-        word_key=word_key,
-        pdf_filename=pdf_file.filename,
-        word_filename=word_file.filename,
-        pdf_size=len(pdf_data),
-        word_size=len(word_data),
-        remark=remark,
-    )
-    db.add(delivery)
+        # 4. 读取文件内容并校验大小
+        pdf_data = await pdf_file.read()
+        word_data = await word_file.read()
 
-    order.status = "delivered"
-    order.delivered_at = datetime.now()
-    order.freeze_until = datetime.now() + timedelta(days=7)
-    reset_delivery_cycle(order, db)
-    create_freeze_pending(order, db)
-    db.commit()
+        if len(pdf_data) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"PDF 文件过大（{len(pdf_data) / 1024 / 1024:.1f}MB），最大 10MB",
+            )
+        if len(word_data) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Word 文件过大（{len(word_data) / 1024 / 1024:.1f}MB），最大 10MB",
+            )
 
-    return {
-        "status": "success",
-        "message": "已交付，等待买家验收",
-        "pdf_filename": pdf_file.filename,
-        "word_filename": word_file.filename,
-    }
+        # 5. 上传到 S3
+        try:
+            storage = get_storage()
+        except StorageError as e:
+            raise HTTPException(status_code=503, detail=f"S3 存储未配置: {e}")
+
+        pdf_key = storage.build_key(order.order_no, pdf_file.filename)
+        word_key = storage.build_key(order.order_no, word_file.filename)
+
+        storage.upload_file(pdf_key, pdf_data, get_file_content_type(pdf_file.filename))
+        storage.upload_file(word_key, word_data, get_file_content_type(word_file.filename))
+
+        # 6. 保存交付记录
+        delivery = m.Delivery(
+            order_no=order_no,
+            pdf_key=pdf_key,
+            word_key=word_key,
+            pdf_filename=pdf_file.filename,
+            word_filename=word_file.filename,
+            pdf_size=len(pdf_data),
+            word_size=len(word_data),
+            remark=remark,
+        )
+        db.add(delivery)
+
+        order.status = "delivered"
+        order.delivered_at = datetime.now()
+        order.freeze_until = datetime.now() + timedelta(days=7)
+        reset_delivery_cycle(order, db)
+        create_freeze_pending(order, db)
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "已交付，等待买家验收",
+            "pdf_filename": pdf_file.filename,
+            "word_filename": word_file.filename,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logging.error(f"deliver failed: {tb.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"交付失败: {str(e)}")
 
 
 @app.get("/api/v1/orders/{order_no}/delivery-url")
@@ -1668,19 +1702,37 @@ async def get_team(
         return q.scalar() or 0.0
 
     def build_member(u: m.User) -> dict:
+        member_roles = ["user"]
+        if db.query(m.CreatorApplication).filter(
+            m.CreatorApplication.user_id == u.id,
+            m.CreatorApplication.status == "approved"
+        ).first():
+            member_roles.append("creator")
+        if (u.team_size or 0) > 0:
+            member_roles.append("promoter")
         return {
             "id": u.id,
             "username": u.username,
             "role": u.role,
+            "roles": member_roles,
             "wallet_balance": u.wallet_balance,
             "contribution": round(user_contrib(u.id), 2),
         }
 
     # 0 级（自己）
+    self_roles = ["user"]
+    if db.query(m.CreatorApplication).filter(
+        m.CreatorApplication.user_id == user.id,
+        m.CreatorApplication.status == "approved"
+    ).first():
+        self_roles.append("creator")
+    if (user.team_size or 0) > 0:
+        self_roles.append("promoter")
     level_0 = {
         "id": user.id,
         "username": user.username,
         "role": user.role,
+        "roles": self_roles,
         "wallet_balance": user.wallet_balance,
         "contribution": round(user_contrib(user.id), 2),
     }

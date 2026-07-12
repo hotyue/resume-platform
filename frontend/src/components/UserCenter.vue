@@ -268,9 +268,9 @@ const fetchStats = async () => {
 
 const onTabChange = (index) => {
   activeTab.value = index
-  if (index === 1 && !teamData.value) fetchTeam()
-  if (index === 2 && commissionList.value.length === 0) fetchCommissionHistory()
-  if (index === 3 && customOrders.value.length === 0) fetchCustomOrders()
+  if (index === 0) fetchTeam()
+  if (index === 1) fetchCommissionHistory()
+  if (index === 3) fetchCustomOrders()
 }
 
 const copyInviteLink = () => {
@@ -331,12 +331,25 @@ const teamCount = computed(() => {
 })
 
 const roleLabel = (role) => {
-  const map = { promoter: '推广合伙人', creator: '制作者', user: '普通用户' }
+  const map = { admin: '管理员', promoter: '推广合伙人', creator: '制作者', user: '普通用户' }
   return map[role] || role
 }
 
+const roleLabels = (roles) => {
+  if (!roles) return []
+  return roles.map(r => roleLabel(r))
+}
+
+const roleTagType = (role) => {
+  const map = { user: '', admin: 'danger', creator: 'success', promoter: 'warning' }
+  return map[role] || 'primary'
+}
+
 onMounted(() => {
-  fetchUserInfo().then(() => fetchStats())
+  fetchUserInfo().then(() => {
+    fetchStats()
+    fetchTeam()
+  })
 })
 </script>
 
@@ -350,7 +363,11 @@ onMounted(() => {
           <van-image round width="50" height="50" src="https://fastly.jsdelivr.net/npm/@vant/assets/cat.jpeg" />
           <div class="details">
             <div class="name">{{ userInfo.username }}</div>
-            <van-tag type="primary" round>{{ roleLabel(userInfo.role) }}</van-tag>
+            <div class="roles-row">
+              <van-tag v-for="role in userInfo.roles" :key="role" :type="roleTagType(role)" round size="medium">
+                {{ roleLabel(role) }}
+              </van-tag>
+            </div>
           </div>
         </div>
         <div class="stats-row">
@@ -363,12 +380,8 @@ onMounted(() => {
             <div class="stat-lbl">保证金</div>
           </div>
           <div class="stat-item">
-            <div class="stat-val">¥{{ (userInfo.referral_commission || 0).toFixed(2) }}</div>
-            <div class="stat-lbl">推广分佣</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-val">¥{{ (userInfo.making_commission || 0).toFixed(2) }}</div>
-            <div class="stat-lbl">制作分佣</div>
+            <div class="stat-val">¥{{ (userInfo.total_commission || 0).toFixed(2) }}</div>
+            <div class="stat-lbl">推荐分佣</div>
           </div>
         </div>
         <div class="balance-actions">
@@ -391,8 +404,8 @@ onMounted(() => {
       <!-- 推荐分佣说明 -->
       <div class="commission-rules">
         <div class="rule-item" v-for="(r, i) in [
-          { level: '直接上级', rate: '30%', desc: '推荐用户首次下单' },
-          { level: '上上级', rate: '10%', desc: '间接推荐用户首次下单' },
+          { level: '直接上级', rate: '30%', desc: '下级下单获得佣金' },
+          { level: '上上级', rate: '10%', desc: '间接下级下单获得佣金' },
         ]" :key="i">
           <span class="rule-level">{{ r.level }}</span>
           <span class="rule-rate">{{ r.rate }}</span>
@@ -417,7 +430,9 @@ onMounted(() => {
             <!-- 我 -->
             <div class="tree-node level-self">
               <van-icon name="contact" /> {{ teamData.level_0.username }}
-              <van-tag size="mini" round>{{ roleLabel(teamData.level_0.role) }}</van-tag>
+              <van-tag v-for="role in (teamData.level_0.roles || [])" :key="role" :type="roleTagType(role)" size="mini" round>
+                {{ roleLabel(role) }}
+              </van-tag>
               <span class="node-balance">¥{{ teamData.level_0.wallet_balance?.toFixed(2) }}</span>
               <span class="node-contrib">贡献 ¥{{ teamData.level_0.contribution?.toFixed(2) }}</span>
             </div>
@@ -430,7 +445,9 @@ onMounted(() => {
               </div>
               <div v-for="m in teamData.level_1" :key="m.id" class="tree-node level-1">
                 <van-icon name="user" /> {{ m.username }}
-                <van-tag size="mini" round>{{ roleLabel(m.role) }}</van-tag>
+                <van-tag v-for="role in (m.roles || [])" :key="role" :type="roleTagType(role)" size="mini" round>
+                  {{ roleLabel(role) }}
+                </van-tag>
                 <span class="node-balance">¥{{ m.wallet_balance?.toFixed(2) }}</span>
                 <span class="node-contrib">贡献 ¥{{ m.contribution?.toFixed(2) }}</span>
               </div>
@@ -445,7 +462,9 @@ onMounted(() => {
               </div>
               <div v-for="m in teamData.level_2" :key="m.id" class="tree-node level-2">
                 <van-icon name="user" /> {{ m.username }}
-                <van-tag size="mini" round>{{ roleLabel(m.role) }}</van-tag>
+                <van-tag v-for="role in (m.roles || [])" :key="role" :type="roleTagType(role)" size="mini" round>
+                  {{ roleLabel(role) }}
+                </van-tag>
                 <span class="node-balance">¥{{ m.wallet_balance?.toFixed(2) }}</span>
                 <span class="node-contrib">贡献 ¥{{ m.contribution?.toFixed(2) }}</span>
               </div>
@@ -459,7 +478,9 @@ onMounted(() => {
               </div>
               <div v-for="m in teamData.level_3" :key="m.id" class="tree-node level-3">
                 <van-icon name="user" /> {{ m.username }}
-                <van-tag size="mini" round>{{ roleLabel(m.role) }}</van-tag>
+                <van-tag v-for="role in (m.roles || [])" :key="role" :type="roleTagType(role)" size="mini" round>
+                  {{ roleLabel(role) }}
+                </van-tag>
                 <span class="node-balance">¥{{ m.wallet_balance?.toFixed(2) }}</span>
                 <span class="node-contrib">贡献 ¥{{ m.contribution?.toFixed(2) }}</span>
               </div>
@@ -475,10 +496,9 @@ onMounted(() => {
             <div v-for="r in commissionList" :key="r.id" class="commission-item">
               <div class="ci-left">
                 <div class="ci-level">
-                  <van-tag :type="r.level === 1 ? 'danger' : r.level === 2 ? 'warning' : 'default'" size="mini" round>
-                    {{ r.level === 1 ? '一级' : r.level === 2 ? '二级' : '三级' }}
+                  <van-tag :type="r.level === 1 ? 'danger' : 'warning'" size="mini" round>
+                    {{ r.level === 0 ? 'L1 30%' : 'L2 10%' }}
                   </van-tag>
-                  <span class="ci-rate">({{ (r.rate * 100).toFixed(0) }}%)</span>
                 </div>
                 <div class="ci-order">订单：{{ r.order_no }}</div>
               </div>
@@ -508,8 +528,9 @@ onMounted(() => {
             <div class="invite-instructions">
               <h4>推广规则</h4>
               <ul>
-                <li>邀请好友注册，好友下单你获得 <strong>30%</strong> 佣金</li>
-                <li>好友邀请的下级下单，你获得 <strong>10%</strong> 佣金</li>
+                <li>下级用户下单，你获得 <strong>30%</strong> 佣金</li>
+                <li>间接下级下单，你获得 <strong>10%</strong> 佣金</li>
+                <li>不限次数，佣金即时到账</li>
                 <li>佣金满 50 元可申请提现</li>
               </ul>
             </div>
@@ -621,6 +642,7 @@ onMounted(() => {
 .user-info { display: flex; align-items: center; margin-bottom: 15px; }
 .details { margin-left: 15px; }
 .name { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+.roles-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .stats-row { display: flex; justify-content: space-around; text-align: center; margin-bottom: 15px; padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.2); border-bottom: 1px solid rgba(255,255,255,0.2); }
 .stat-val { font-size: 20px; font-weight: bold; font-family: DIN, sans-serif; }
 .stat-lbl { font-size: 12px; opacity: 0.85; margin-top: 3px; }

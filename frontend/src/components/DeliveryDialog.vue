@@ -1,7 +1,82 @@
+<template>
+  <van-dialog v-model:show="dialogShow" :show-confirm-button="false" :show-cancel-button="true"
+    cancel-button-text="取消" class="delivery-dialog"
+    @cancel="onCancel">
+    <div class="delivery-form">
+      <div class="delivery-header">
+        <van-icon name="passed" size="24" color="#07c160" />
+        <span>提交交付</span>
+      </div>
+
+      <div class="order-info" v-if="orderName">
+        <span>订单模板：{{ orderName }}</span>
+        <span>订单号：{{ orderNo }}</span>
+      </div>
+
+      <van-cell-group inset>
+        <van-cell title="PDF 文件" required>
+          <template #value>
+            <div class="file-picker">
+              <span v-if="pdfName" class="file-name">{{ pdfName }}</span>
+              <span v-else class="file-placeholder">选择 .pdf 文件</span>
+              <input ref="pdfInput" type="file" accept=".pdf" @change="onPdfChange" class="hidden-input" />
+              <van-button size="mini" type="primary" plain @click="triggerPdf">选择</van-button>
+            </div>
+          </template>
+        </van-cell>
+
+        <van-cell title="Word 文件" required>
+          <template #value>
+            <div class="file-picker">
+              <span v-if="wordName" class="file-name">{{ wordName }}</span>
+              <span v-else class="file-placeholder">选择 .doc/.docx 文件</span>
+              <input ref="wordInput" type="file" accept=".doc,.docx" @change="onWordChange" class="hidden-input" />
+              <van-button size="mini" type="primary" plain @click="triggerWord">选择</van-button>
+            </div>
+          </template>
+        </van-cell>
+
+        <van-cell title="备注" label-position="top">
+          <template #value>
+            <van-field v-model="remark" rows="2" type="textarea" placeholder="选填：交付说明" />
+          </template>
+        </van-cell>
+      </van-cell-group>
+
+      <div class="delivery-notice">
+        交付后等待买家验收，验收通过后佣金进入制作者账号余额
+      </div>
+
+      <!-- 上传进度条 -->
+      <div v-if="showProgress" class="progress-section">
+        <div class="progress-header">
+          <span class="progress-label">上传中...</span>
+          <span class="progress-pct">{{ uploadProgress }}%</span>
+        </div>
+        <van-progress
+          :percentage="uploadProgress"
+          color="linear-gradient(90deg, #1989fa, #07c160)"
+          stroke-width="8"
+          pivot-text="上传中"
+        />
+        <div class="progress-detail" v-if="uploadingText">
+          {{ uploadingText }}
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <van-button type="primary" block round :loading="submitting" :disabled="submitting" @click="submitDelivery">
+          {{ submitting ? '上传中...' : '确定交付' }}
+        </van-button>
+      </div>
+    </div>
+  </van-dialog>
+</template>
+
 <script setup>
-import { ref, watch, computed } from 'vue'
-import { showToast, showSuccessToast } from 'vant'
-import request from '../api/request.js'
+import { ref, computed, watch } from 'vue'
+import { showToast, showSuccessToast, showFailToast } from 'vant'
+import { getToken } from '../api/request.js'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -12,135 +87,100 @@ const props = defineProps({
 
 const emit = defineEmits(['update:show', 'success'])
 
-// 文件状态
+const dialogShow = computed({
+  get: () => props.show,
+  set: (v) => emit('update:show', v),
+})
+
 const pdfFile = ref(null)
 const wordFile = ref(null)
+const pdfName = ref('')
+const wordName = ref('')
+const pdfSize = ref(0)
+const wordSize = ref(0)
 const remark = ref('')
-const uploading = ref(false)
-const pdfDragOver = ref(false)
-const wordDragOver = ref(false)
+const submitting = ref(false)
+const pdfInput = ref(null)
+const wordInput = ref(null)
 
-// 上传进度
+// 进度条
+const showProgress = ref(false)
 const uploadProgress = ref(0)
+const uploadingText = ref('')
 
-// 内联确认状态
-const confirming = ref(false)
-
-const ALLOWED_PDF = ['.pdf']
-const ALLOWED_WORD = ['.doc', '.docx']
-const MAX_SIZE = 10 * 1024 * 1024 // 10MB
-
-// 校验文件扩展名
-const checkExtension = (file, type) => {
-  const ext = '.' + file.name.split('.').pop().toLowerCase()
-  const allowed = type === 'pdf' ? ALLOWED_PDF : ALLOWED_WORD
-  return allowed.includes(ext)
-}
-
-// 校验文件大小
-const checkSize = (file) => file.size <= MAX_SIZE
-
-// 格式化文件大小
-const formatSize = (bytes) => {
+function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / 1024 / 1024).toFixed(2) + ' MB'
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
 }
 
-// PDF 处理
-const handlePdfSelect = (event) => {
-  const file = event.target.files?.[0]
-  if (!file) return
-  if (!checkExtension(file, 'pdf')) {
-    showToast(`PDF 仅支持 .pdf 格式（当前: ${file.name}）`)
-    return
+watch(() => props.show, (val) => {
+  if (val) {
+    resetForm()
   }
-  if (!checkSize(file)) {
-    showToast(`PDF 文件过大（${formatSize(file.size)}），最大 10MB`)
-    return
-  }
-  pdfFile.value = file
-}
+})
 
-const handlePdfDrag = (e) => {
-  e.preventDefault()
-  e.stopPropagation()
-  if (e.type === 'dragover' || e.type === 'dragenter') {
-    pdfDragOver.value = true
-  } else {
-    pdfDragOver.value = false
-    const file = e.dataTransfer?.files?.[0]
-    if (file) {
-      if (!checkExtension(file, 'pdf')) {
-        showToast(`PDF 仅支持 .pdf 格式（当前: ${file.name}）`)
-        return
-      }
-      if (!checkSize(file)) {
-        showToast(`PDF 文件过大（${formatSize(file.size)}），最大 10MB`)
-        return
-      }
-      pdfFile.value = file
-    }
-  }
-}
-
-const clearPdf = () => {
+function resetForm() {
   pdfFile.value = null
-}
-
-// Word 处理
-const handleWordSelect = (event) => {
-  const file = event.target.files?.[0]
-  if (!file) return
-  if (!checkExtension(file, 'word')) {
-    showToast(`Word 仅支持 .doc / .docx 格式（当前: ${file.name}）`)
-    return
-  }
-  if (!checkSize(file)) {
-    showToast(`Word 文件过大（${formatSize(file.size)}），最大 10MB`)
-    return
-  }
-  wordFile.value = file
-}
-
-const handleWordDrag = (e) => {
-  e.preventDefault()
-  e.stopPropagation()
-  if (e.type === 'dragover' || e.type === 'dragenter') {
-    wordDragOver.value = true
-  } else {
-    wordDragOver.value = false
-    const file = e.dataTransfer?.files?.[0]
-    if (file) {
-      if (!checkExtension(file, 'word')) {
-        showToast(`Word 仅支持 .doc / .docx 格式（当前: ${file.name}）`)
-        return
-      }
-      if (!checkSize(file)) {
-        showToast(`Word 文件过大（${formatSize(file.size)}），最大 10MB`)
-        return
-      }
-      wordFile.value = file
-    }
-  }
-}
-
-const clearWord = () => {
   wordFile.value = null
+  pdfName.value = ''
+  wordName.value = ''
+  pdfSize.value = 0
+  wordSize.value = 0
+  remark.value = ''
+  submitting.value = false
+  showProgress.value = false
+  uploadProgress.value = 0
+  uploadingText.value = ''
 }
 
-// 是否可以提交
-const canSubmit = computed(() => pdfFile.value && wordFile.value && !uploading.value)
-
-// 第一步：显示内联确认
-const handleSubmit = () => {
-  confirming.value = true
+function triggerPdf() {
+  pdfInput.value?.click()
 }
 
-// 第二步：确认后执行上传
-const confirmSubmit = async () => {
-  confirming.value = false
-  uploading.value = true
+function triggerWord() {
+  wordInput.value?.click()
+}
+
+function onPdfChange(e) {
+  const file = e.target.files?.[0]
+  if (file) {
+    pdfFile.value = file
+    pdfName.value = file.name
+    pdfSize.value = file.size
+  }
+}
+
+function onWordChange(e) {
+  const file = e.target.files?.[0]
+  if (file) {
+    wordFile.value = file
+    wordName.value = file.name
+    wordSize.value = file.size
+  }
+}
+
+function onCancel() {
+  resetForm()
+  emit('update:show', false)
+}
+
+async function submitDelivery() {
+  if (!pdfFile.value) {
+    showToast('请选择 PDF 文件')
+    return
+  }
+  if (!wordFile.value) {
+    showToast('请选择 Word 文件')
+    return
+  }
+  if (!props.orderNo) {
+    showToast('订单号异常')
+    return
+  }
+
+  submitting.value = true
+  showProgress.value = true
   uploadProgress.value = 0
 
   try {
@@ -152,553 +192,78 @@ const confirmSubmit = async () => {
       formData.append('remark', remark.value)
     }
 
-    const totalSize = pdfFile.value.size + wordFile.value.size
+    const token = getToken()
+    const baseURL = import.meta.env.VITE_API_BASE || '/api/v1'
 
-    await request.post('/creator/deliver', formData, {
-      onUploadProgress: (e) => {
-        uploadProgress.value = Math.round((e.loaded / totalSize) * 100)
-      },
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', baseURL + '/creator/deliver')
+      xhr.setRequestHeader('Authorization', 'Bearer ' + token)
+
+      // 上传进度
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100)
+          uploadProgress.value = pct
+          uploadingText.value = `${formatSize(e.loaded)} / ${formatSize(e.total)}`
+        }
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText))
+          } catch {
+            resolve({ status: 'success' })
+          }
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText)
+            reject(new Error(err.detail || `HTTP ${xhr.status}`))
+          } catch {
+            reject(new Error(`HTTP ${xhr.status}`))
+          }
+        }
+      }
+
+      xhr.onerror = () => reject(new Error('网络连接失败'))
+      xhr.ontimeout = () => reject(new Error('上传超时'))
+      xhr.timeout = 120000
+
+      xhr.send(formData)
     })
 
-    // 上传成功 — 关闭弹窗
+    uploadProgress.value = 100
+    showSuccessToast('交付成功')
     emit('update:show', false)
-    showSuccessToast('已交付，等待买家验收')
     emit('success')
   } catch (e) {
-    const msg = e.response?.data?.detail || '交付失败'
-    showToast(msg)
-    console.error('Delivery failed:', e.response?.data || e.message)
+    showFailToast(e.message || '交付失败，请重试')
   } finally {
-    uploading.value = false
-    uploadProgress.value = 0
+    submitting.value = false
+    setTimeout(() => {
+      showProgress.value = false
+    }, 1500)
   }
 }
-
-// 取消确认
-const cancelConfirm = () => {
-  confirming.value = false
-}
-
-// 关闭时清空
-watch(() => props.show, (val) => {
-  if (!val) {
-    pdfFile.value = null
-    wordFile.value = null
-    remark.value = ''
-    uploading.value = false
-  }
-})
 </script>
 
-<template>
-  <div v-if="show" class="delivery-overlay" @click.self="!uploading && $emit('update:show', false)">
-    <div class="delivery-dialog-mask">
-      <div class="delivery-dialog">
-        <div class="dialog-header">
-          <div class="header-title">
-            <h3>交付订单</h3>
-            <div class="order-info">
-              <span class="order-no">{{ orderNo }}</span>
-              <span v-if="orderName" class="order-name">{{ orderName }}</span>
-            </div>
-          </div>
-          <span class="close-btn" :class="{ 'close-disabled': uploading }" @click="!uploading && $emit('update:show', false)">✕</span>
-        </div>
-
-        <div class="dialog-body">
-          <!-- PDF 上传 -->
-          <div class="file-upload-section">
-            <div class="file-label">
-              <span class="label-text">📄 PDF 文件</span>
-              <span class="label-hint">（必选，仅 .pdf）</span>
-            </div>
-            <div
-              class="drop-zone"
-              :class="{ 'has-file': pdfFile, 'drag-over': pdfDragOver }"
-              @dragover="handlePdfDrag"
-              @dragenter="handlePdfDrag"
-              @dragleave="handlePdfDrag"
-              @drop="handlePdfDrag"
-              @click="$refs.pdfInput?.click()"
-            >
-              <input
-                ref="pdfInput"
-                type="file"
-                accept=".pdf"
-                class="file-input"
-                @change="handlePdfSelect"
-              />
-              <div v-if="!pdfFile" class="drop-placeholder">
-                <span class="drop-icon">📤</span>
-                <span>拖拽 PDF 到此处，或点击选择</span>
-              </div>
-              <div v-else class="file-info">
-                <div class="file-name">{{ pdfFile.name }}</div>
-                <div class="file-size">{{ formatSize(pdfFile.size) }}</div>
-                <span class="file-remove" @click.stop="clearPdf">✕ 移除</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Word 上传 -->
-          <div class="file-upload-section">
-            <div class="file-label">
-              <span class="label-text">📝 Word 文件</span>
-              <span class="label-hint">（必选，.doc / .docx）</span>
-            </div>
-            <div
-              class="drop-zone"
-              :class="{ 'has-file': wordFile, 'drag-over': wordDragOver }"
-              @dragover="handleWordDrag"
-              @dragenter="handleWordDrag"
-              @dragleave="handleWordDrag"
-              @drop="handleWordDrag"
-              @click="$refs.wordInput?.click()"
-            >
-              <input
-                ref="wordInput"
-                type="file"
-                accept=".doc,.docx"
-                class="file-input"
-                @change="handleWordSelect"
-              />
-              <div v-if="!wordFile" class="drop-placeholder">
-                <span class="drop-icon">📤</span>
-                <span>拖拽 Word 到此处，或点击选择</span>
-              </div>
-              <div v-else class="file-info">
-                <div class="file-name">{{ wordFile.name }}</div>
-                <div class="file-size">{{ formatSize(wordFile.size) }}</div>
-                <span class="file-remove" @click.stop="clearWord">✕ 移除</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 备注 -->
-          <div class="remark-section">
-            <div class="file-label">
-              <span class="label-text">💬 备注</span>
-              <span class="label-hint">（可选）</span>
-            </div>
-            <textarea
-              v-model="remark"
-              class="remark-textarea"
-              placeholder="给买家的备注（选填）"
-              rows="3"
-            ></textarea>
-          </div>
-
-          <!-- 上传进度 -->
-          <div v-if="uploading" class="progress-section">
-            <div class="progress-header">
-              <span class="progress-label">📤 上传中...</span>
-              <span class="progress-percent">{{ uploadProgress }}%</span>
-            </div>
-            <div class="progress-track">
-              <div class="progress-fill" :style="{ width: uploadProgress + '%' }"></div>
-            </div>
-            <div class="progress-detail">
-              <span>PDF: {{ pdfFile ? formatSize(pdfFile.size) : '-' }}</span>
-              <span>Word: {{ wordFile ? formatSize(wordFile.size) : '-' }}</span>
-            </div>
-          </div>
-
-          <!-- 文件状态 -->
-          <div class="upload-status" v-if="!uploading">
-            <div class="status-item" :class="{ done: pdfFile }">
-              <span class="status-icon">{{ pdfFile ? '✅' : '⬜' }}</span>
-              <span>PDF: {{ pdfFile ? pdfFile.name : '未选择' }}</span>
-            </div>
-            <div class="status-item" :class="{ done: wordFile }">
-              <span class="status-icon">{{ wordFile ? '✅' : '⬜' }}</span>
-              <span>Word: {{ wordFile ? wordFile.name : '未选择' }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="dialog-footer">
-          <template v-if="uploading">
-            <div class="uploading-box">
-              <div class="uploading-icon">⏳</div>
-              <div class="uploading-text">正在上传文件，请勿关闭页面...</div>
-            </div>
-          </template>
-          <template v-else-if="!confirming">
-            <button class="btn-cancel" @click="$emit('update:show', false)">取消</button>
-            <button
-              class="btn-submit"
-              :class="{ 'btn-disabled': !canSubmit }"
-              :disabled="!canSubmit"
-              @click="handleSubmit"
-            >
-              确认交付
-            </button>
-          </template>
-          <template v-else>
-            <div class="confirm-box">
-              <div class="confirm-icon">⚠️</div>
-              <div class="confirm-text">交付后等待买家验收，验收通过后佣金进入7天冻结期</div>
-              <div class="confirm-actions">
-                <button class="btn-cancel" @click="cancelConfirm">再想想</button>
-                <button class="btn-submit" @click="confirmSubmit">确定交付</button>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>
-
 <style scoped>
-.delivery-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 9000;
-}
+.delivery-dialog { max-width: 90vw; }
+.delivery-form { padding: 15px; min-height: 200px; }
+.delivery-header { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 18px; font-weight: bold; margin-bottom: 15px; }
+.order-info { font-size: 12px; color: #999; text-align: center; margin-bottom: 10px; }
+.order-info span { display: block; margin: 2px 0; }
+.file-picker { display: flex; align-items: center; gap: 8px; }
+.file-name { font-size: 12px; color: #07c160; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-placeholder { font-size: 12px; color: #999; }
+.hidden-input { display: none; }
+.delivery-notice { font-size: 12px; color: #666; background: #fffbe6; padding: 8px 12px; border-radius: 6px; margin: 12px 0; border: 1px solid #ffe58f; }
+.dialog-footer { margin-top: 15px; }
 
-.delivery-dialog-mask {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 15px;
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.delivery-dialog {
-  background: white;
-  border-radius: 16px;
-  width: 100%;
-  max-width: 480px;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-}
-
-.dialog-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 16px 20px;
-  border-bottom: 1px solid #eee;
-}
-
-.header-title {
-  flex: 1;
-  min-width: 0;
-}
-
-.dialog-header h3 {
-  margin: 0;
-  font-size: 17px;
-  color: #323233;
-}
-
-.order-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.order-no {
-  font-size: 12px;
-  color: #969799;
-  font-family: monospace;
-}
-
-.order-name {
-  font-size: 12px;
-  color: #646566;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.close-btn {
-  font-size: 20px;
-  color: #999;
-  cursor: pointer;
-  padding: 4px 8px;
-}
-
-.dialog-body {
-  padding: 20px;
-}
-
-.file-upload-section {
-  margin-bottom: 18px;
-}
-
-.file-label {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.label-text {
-  font-size: 14px;
-  font-weight: 500;
-  color: #323233;
-}
-
-.label-hint {
-  font-size: 12px;
-  color: #999;
-}
-
-.drop-zone {
-  border: 2px dashed #dcdee0;
-  border-radius: 10px;
-  padding: 24px 16px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-  background: #fafafa;
-}
-
-.drop-zone:hover {
-  border-color: #07c160;
-  background: #f0f9f4;
-}
-
-.drop-zone.has-file {
-  border-color: #07c160;
-  background: #f0f9f4;
-  border-style: solid;
-}
-
-.drop-zone.drag-over {
-  border-color: #07c160;
-  background: #e6f7ed;
-  transform: scale(1.02);
-}
-
-.file-input {
-  display: none;
-}
-
-.drop-placeholder .drop-icon {
-  font-size: 28px;
-  display: block;
-  margin-bottom: 8px;
-}
-
-.drop-placeholder span:last-child {
-  font-size: 13px;
-  color: #999;
-}
-
-.file-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.file-name {
-  font-size: 14px;
-  color: #323233;
-  font-weight: 500;
-  word-break: break-all;
-}
-
-.file-size {
-  font-size: 12px;
-  color: #999;
-}
-
-.file-remove {
-  font-size: 12px;
-  color: #ee0a24;
-  cursor: pointer;
-  margin-top: 4px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #fff1f0;
-}
-
-.remark-section {
-  margin-bottom: 18px;
-}
-
-.remark-textarea {
-  width: 100%;
-  border: 1px solid #dcdee0;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
-  resize: vertical;
-  font-family: inherit;
-  box-sizing: border-box;
-}
-
-.remark-textarea:focus {
-  outline: none;
-  border-color: #07c160;
-}
-
-.upload-status {
-  background: #f7f8fa;
-  border-radius: 8px;
-  padding: 12px;
-}
-
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #999;
-  padding: 4px 0;
-}
-
-.status-item.done {
-  color: #07c160;
-}
-
-.dialog-footer {
-  display: flex;
-  gap: 12px;
-  padding: 16px 20px;
-  border-top: 1px solid #eee;
-}
-
-.btn-cancel,
-.btn-submit {
-  flex: 1;
-  padding: 12px;
-  border: none;
-  border-radius: 8px;
-  font-size: 15px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-cancel {
-  background: #f7f8fa;
-  color: #646566;
-}
-
-.btn-cancel:hover {
-  background: #f2f3f5;
-}
-
-.btn-submit {
-  background: #07c160;
-  color: white;
-}
-
-.btn-submit:hover:not(.btn-disabled) {
-  background: #06ad56;
-}
-
-.btn-disabled {
-  background: #c8c9cc !important;
-  color: #fff !important;
-  cursor: not-allowed !important;
-}
-
-/* 内联确认框 */
-.confirm-box {
-  width: 100%;
-}
-
-.confirm-icon {
-  font-size: 48px;
-  text-align: center;
-  margin-bottom: 12px;
-}
-
-.confirm-text {
-  font-size: 14px;
-  color: #646566;
-  text-align: center;
-  line-height: 1.6;
-  margin-bottom: 16px;
-}
-
-.confirm-actions {
-  display: flex;
-  gap: 12px;
-}
-
-/* 上传进度条 */
-.progress-section {
-  margin-bottom: 16px;
-  padding: 16px;
-  background: #f0f9f4;
-  border-radius: 10px;
-  border: 1px solid #b7e4c7;
-}
-
-.progress-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.progress-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #07c160;
-}
-
-.progress-percent {
-  font-size: 18px;
-  font-weight: 700;
-  color: #07c160;
-  font-family: monospace;
-}
-
-.progress-track {
-  height: 8px;
-  background: #dcdee0;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #07c160, #05a84e);
-  border-radius: 4px;
-  transition: width 0.3s ease;
-}
-
-.progress-detail {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: #969799;
-}
-
-/* 上传中状态 */
-.uploading-box {
-  width: 100%;
-  text-align: center;
-  padding: 8px 0;
-}
-
-.uploading-icon {
-  font-size: 32px;
-  margin-bottom: 8px;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.uploading-text {
-  font-size: 14px;
-  color: #646566;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(0.95); }
-}
+.progress-section { margin: 12px 0; padding: 8px 12px; background: #f0f7ff; border-radius: 8px; border: 1px solid #d9ecff; }
+.progress-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.progress-label { font-size: 13px; color: #1989fa; font-weight: 500; }
+.progress-pct { font-size: 13px; color: #1989fa; font-weight: bold; }
+.progress-detail { font-size: 11px; color: #999; text-align: center; margin-top: 6px; }
 </style>

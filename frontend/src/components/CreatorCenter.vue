@@ -346,7 +346,7 @@ onMounted(() => {
               <div class="order-amount">报酬: <strong>¥{{ (o.amount * 0.3).toFixed(2) }}</strong></div>
               <div class="order-req">{{ o.requirements }}</div>
               <div v-if="o.status === 'delivered'" class="freeze-info">⏳ 等待买家验收（7天自动验收）</div>
-              <div v-if="o.status === 'accepted'" class="accepted-info">✅ 验收通过，佣金冻结中</div>
+              <div v-if="o.status === 'accepted'" class="accepted-info">✅ 验收通过，佣金已入账</div>
               <van-button v-if="o.status === 'in_progress'" type="primary" size="small" round @click="handleDeliver(o.order_no, o.amount, o.template_name)">
                 提交交付
               </van-button>

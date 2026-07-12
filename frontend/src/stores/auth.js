@@ -14,7 +14,7 @@ export const useAuthStore = defineStore('auth', () => {
   // Getters
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
-  const isCreator = computed(() => user.value?.role === 'creator')
+  const isCreator = computed(() => user.value?.roles?.includes('creator') || false)
   const userId = computed(() => user.value?.id)
   const username = computed(() => user.value?.username)
   const authHeader = computed(() =>
@@ -37,7 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function hasPermission(role) {
-    return user.value?.role === role
+    return user.value?.roles?.includes(role) || false
   }
 
   return {

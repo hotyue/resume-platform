@@ -34,4 +34,8 @@ request.interceptors.response.use(
   }
 )
 
+export function getToken() {
+  return localStorage.getItem('token')
+}
+
 export default request
