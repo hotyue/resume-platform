@@ -1323,6 +1323,7 @@ async def payjs_notify(request: Request, db: Session = Depends(get_db)):
     return "success"
 
 
+
 @app.get("/api/v1/orders/status/{order_no}")
 async def get_order_status(order_no: str, db: Session = Depends(get_db)):
     order = db.query(m.Order).filter(m.Order.order_no == order_no).first()
@@ -1725,6 +1726,15 @@ async def get_my_orders(
             "accepted_at": o.accepted_at.isoformat() if o.accepted_at else None,
         })
     return result
+
+
+@app.get("/api/v1/orders/by-id/{order_id}")
+async def get_order_by_id(order_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """按数据库ID获取订单详情（用于聊天标题等场景）"""
+    order = db.query(m.Order).filter(m.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    return {"id": order.id, "order_no": order.order_no, "status": order.status, "order_type": order.order_type}
 
 
 # ================= 健康检查 =================

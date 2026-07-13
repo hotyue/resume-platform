@@ -1,11 +1,7 @@
 <template>
   <div class="chat-page">
     <!-- 顶部栏 -->
-    <van-nav-bar title="订单聊天" left-arrow @click-left="goBack">
-      <template #right>
-        <span class="order-no">{{ orderNo }}</span>
-      </template>
-    </van-nav-bar>
+    <van-nav-bar :title="orderNo" left-arrow @click-left="goBack" />
 
     <!-- 消息列表 -->
     <div class="messages-container" ref="msgContainerRef">
@@ -202,7 +198,7 @@ const loadHistory = async () => {
 // 加载订单信息
 const loadOrderInfo = async () => {
   try {
-    const res = await request.get(`/orders/${orderId.value}`)
+    const res = await request.get(`/orders/by-id/${orderId.value}`)
     orderNo.value = res.data.order_no || `订单 #${orderId.value}`
   } catch (e) {
     orderNo.value = `订单 #${orderId.value}`
