@@ -344,6 +344,10 @@ const fillAccount = (type, account) => {
   paymentInfo.value = account
 }
 
+const openChat = (orderId) => {
+  router.push(`/chat/${orderId}`)
+}
+
 // 第三方登录绑定
 const handleOAuthBind = (provider) => {
   window.location.href = `/api/v1/auth/oauth/${provider}/authorize?redirect=/user`
@@ -655,7 +659,7 @@ onMounted(() => {
                 <p><strong>{{ o.template_name }}</strong></p>
                 <p class="co-req">{{ o.custom_requirements || '暂无需求描述' }}</p>
                 <p class="co-amount">¥{{ o.amount.toFixed(2) }}</p>
-                <p v-if="o.creator_name" class="co-creator">👤 接单人: {{ o.creator_name }}</p>
+                <p v-if="o.creator_name" class="co-creator" @click="openChat(o.id)">👤 接单人: {{ o.creator_name }}</p>
                 <p v-if="o.status === 'delivered'" class="co-frozen">⏳ 等待验收（7天自动通过）</p>
                 <!-- 预览交付文件 -->
                 <div v-if="['delivered', 'accepted'].includes(o.status)" class="co-preview">
@@ -879,6 +883,7 @@ onMounted(() => {
 .co-req { color: #666; font-size: 12px; line-height: 1.4; }
 .co-amount { color: #ee0a24; font-weight: bold; font-size: 15px; }
 .co-frozen { font-size: 11px; color: #ff976a; margin-top: 6px; padding: 4px 8px; background: #fffbe6; border-radius: 4px; text-align: center; }
+.co-creator { color: #1989fa; cursor: pointer; }
 .co-preview { display: flex; gap: 8px; margin-top: 8px; }
 .co-footer { margin-top: 10px; }
 

@@ -1714,7 +1714,7 @@ async def get_my_orders(
     for o in orders:
         template = db.query(m.Template).filter(m.Template.id == o.template_id).first()
         creator = db.query(m.User).filter(m.User.id == o.creator_id).first() if o.creator_id else None
-        result.append({"order_no": o.order_no,
+        result.append({"id": o.id, "order_no": o.order_no,
             "template_name": template.name if template else "未知模板",
             "order_type": o.order_type, "amount": o.amount, "status": o.status,
             "custom_requirements": o.custom_requirements, "creator_id": o.creator_id,
@@ -2281,10 +2281,61 @@ from collections import defaultdict
 # 连接管理: order_id -> [WebSocket, ...]
 active_chat_connections: dict[int, list] = defaultdict(list)
 
+# 在线用户管理: user_id -> WebSocket
+online_users: dict[int, WebSocket] = {}
+
+# 心跳配置
+HEARTBEAT_INTERVAL = 30  # 心跳间隔（秒）
+HEARTBEAT_TIMEOUT = 60   # 超时判定离线（秒）
+
 
 def is_chat_participant(order: m.Order, user_id: int) -> bool:
     """检查用户是否为订单参与者（下单用户或制作者）"""
     return order.user_id == user_id or order.creator_id == user_id
+
+
+@app.websocket("/ws/user/heartbeat")
+async def heartbeat_websocket(websocket: WebSocket, token: str = Query(None)):
+    """用户在线心跳 WebSocket — 维持在线状态 + 接收通知推送"""
+    # JWT 鉴权
+    try:
+        user = auth.get_current_user(token=token)
+    except Exception:
+        await websocket.close(code=4001, reason="Authentication failed")
+        return
+
+    await websocket.accept()
+    user_id = user["id"]
+    online_users[user_id] = websocket
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # 客户端发心跳，无需处理，保持连接即可
+    except WebSocketDisconnect:
+        online_users.pop(user_id, None)
+
+
+def _push_notification(user_id: int, payload: dict):
+    """推送通知到在线用户的 WebSocket"""
+    ws = online_users.get(user_id)
+    if ws is not None:
+        import asyncio as _aio
+        _aio.create_task(_send_ws_safe(ws, payload))
+
+
+async def _send_ws_safe(ws: WebSocket, data: dict):
+    """安全发送 WS 消息，失败则清理"""
+    try:
+        await ws.send_json(data)
+    except Exception:
+        uid = None
+        for uid_w, ws_v in list(online_users.items()):
+            if ws_v is ws:
+                uid = uid_w
+                break
+        if uid is not None:
+            online_users.pop(uid, None)
 
 
 @app.websocket("/ws/orders/{order_id}/chat")
@@ -2388,6 +2439,31 @@ async def chat_websocket(websocket: WebSocket, order_id: int, token: str = Query
                         await conn.send_json(msg_payload)
                     except Exception:
                         pass
+
+                # 推送通知给订单另一方（如果在线且不在聊天页）
+                db2 = SessionLocal()
+                try:
+                    order = db2.query(m.Order).filter(m.Order.id == order_id).first()
+                    if order:
+                        other_id = None
+                        if order.user_id == user["id"]:
+                            other_id = order.creator_id
+                        elif order.creator_id and order.creator_id == user["id"]:
+                            other_id = order.user_id
+                        if other_id and other_id != user["id"]:
+                            # 获取对方用户名
+                            other_user = db2.query(m.User).filter(m.User.id == other_id).first()
+                            other_name = other_user.username if other_user else "用户"
+                            _push_notification(other_id, {
+                                "type": "chat_notification",
+                                "order_id": order_id,
+                                "sender_id": user["id"],
+                                "sender_name": user.get("username", ""),
+                                "content": content[:50] if len(content) > 50 else content,
+                                "created_at": msg_payload["created_at"],
+                            })
+                finally:
+                    db2.close()
 
     except WebSocketDisconnect:
         active_chat_connections[order_id].remove(websocket)
@@ -2494,7 +2570,51 @@ async def send_order_message(
         except Exception:
             pass
 
+    # 推送通知给订单另一方
+    other_id = None
+    if order.user_id == current_user["id"]:
+        other_id = order.creator_id
+    elif order.creator_id and order.creator_id == current_user["id"]:
+        other_id = order.user_id
+    if other_id and other_id != current_user["id"]:
+        other_user = db.query(m.User).filter(m.User.id == other_id).first()
+        _push_notification(other_id, {
+            "type": "chat_notification",
+            "order_id": order_id,
+            "sender_id": current_user["id"],
+            "sender_name": current_user.get("username", ""),
+            "content": (content[:50] if len(content) > 50 else content) or "(文件)",
+            "created_at": new_msg.created_at.isoformat() if new_msg.created_at else None,
+        })
+
     return msg_payload
+
+
+@app.get("/api/v1/chat/unread-count")
+async def get_unread_count(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """获取当前用户的未读消息总数"""
+    user_id = current_user["id"]
+    # 找出用户参与的所有订单
+    orders_as_buyer = db.query(m.Order.id).filter(m.Order.user_id == user_id).subquery()
+    orders_as_creator = db.query(m.Order.id).filter(m.Order.creator_id == user_id).subquery()
+    # 未读 = 别人发给我的
+    count = (
+        db.query(func.count(m.OrderMessage.id))
+        .filter(
+            m.OrderMessage.order_id.in_(
+                db.query(m.Order.id).filter(
+                    (m.Order.user_id == user_id) | (m.Order.creator_id == user_id)
+                )
+            ),
+            m.OrderMessage.sender_id != user_id,
+            m.OrderMessage.is_read == False,
+        )
+        .scalar() or 0
+    )
+    return {"unread_count": count}
 
 
 @app.patch("/api/v1/orders/{order_id}/messages/read")
