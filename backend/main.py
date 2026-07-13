@@ -2580,6 +2580,7 @@ async def send_order_message(
     db.refresh(new_msg)
 
     msg_payload = _message_to_dict(new_msg)
+    msg_payload["type"] = "message"
 
     # WebSocket 广播
     for conn in list(active_chat_connections.get(order_id, [])):
