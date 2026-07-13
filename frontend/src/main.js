@@ -7,7 +7,7 @@ import {
   Button, Toast, PullRefresh, Popup, Search,
   Tag, Cell, CellGroup, Field, Dialog, 
   Tab, Tabs, Empty,
-  Form, Icon, Loading, ActionSheet,
+  Form, Icon, Loading, ActionSheet, Badge,
   Radio, RadioGroup, Checkbox,
   DropdownMenu, DropdownItem,
   Progress,
@@ -22,5 +22,5 @@ app.use(ConfigProvider).use(Tabbar).use(TabbarItem).use(NavBar).use(Grid).use(Gr
 app.use(VanImage).use(Button).use(Toast).use(PullRefresh).use(Popup).use(Search).use(Tag).use(Cell).use(CellGroup)
 app.use(Field).use(Dialog).use(Tab).use(Tabs).use(Empty)
 app.use(Form).use(Icon).use(Loading).use(ActionSheet).use(Radio).use(RadioGroup).use(Checkbox)
-app.use(DropdownMenu).use(DropdownItem).use(Progress)
+app.use(DropdownMenu).use(DropdownItem).use(Progress).use(Badge)
 app.mount('#app')

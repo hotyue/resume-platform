@@ -2297,15 +2297,21 @@ def is_chat_participant(order: m.Order, user_id: int) -> bool:
 @app.websocket("/ws/user/heartbeat")
 async def heartbeat_websocket(websocket: WebSocket, token: str = Query(None)):
     """用户在线心跳 WebSocket — 维持在线状态 + 接收通知推送"""
-    # JWT 鉴权
+    # JWT 鉴权（WebSocket 不能用 Depends，手动解码）
+    if not token:
+        await websocket.close(code=4001, reason="No token")
+        return
     try:
-        user = auth.get_current_user(token=token)
+        payload = auth.decode_token(token)
     except Exception:
         await websocket.close(code=4001, reason="Authentication failed")
         return
+    user_id = int(payload.get("sub")) if payload.get("sub") else None
+    if user_id is None:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
 
     await websocket.accept()
-    user_id = user["id"]
     online_users[user_id] = websocket
 
     try:
@@ -2341,12 +2347,24 @@ async def _send_ws_safe(ws: WebSocket, data: dict):
 @app.websocket("/ws/orders/{order_id}/chat")
 async def chat_websocket(websocket: WebSocket, order_id: int, token: str = Query(None)):
     """订单聊天 WebSocket 端点"""
-    # JWT 鉴权
+    # JWT 鉴权（手动解码，不依赖 Depends）
+    if not token:
+        await websocket.close(code=4001, reason="No token")
+        return
     try:
-        user = auth.get_current_user(token=token)
+        payload = auth.decode_token(token)
     except Exception:
         await websocket.close(code=4001, reason="Authentication failed")
         return
+    user_id = int(payload.get("sub")) if payload.get("sub") else None
+    if user_id is None:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+    user = {
+        "id": user_id,
+        "username": payload.get("username"),
+        "role": payload.get("role", "user"),
+    }
 
     db = SessionLocal()
     try:
