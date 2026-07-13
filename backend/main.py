@@ -1006,6 +1006,16 @@ async def update_system_config(
     return {"key": req.key, "value": req.value, "message": "配置已更新"}
 
 
+# 公开配置（无需认证 — 前端展示用）
+@app.get("/api/v1/config/public")
+async def get_public_config(db: Session = Depends(get_db)):
+    """返回前端需要展示的公开配置项"""
+    return {
+        "creator_rate": get_config(db, "creator_rate", 0.30),
+        "deposit_amount": get_config(db, "deposit_amount", 20.0),
+    }
+
+
 # 退款审核
 @app.get("/api/v1/admin/refunds")
 async def admin_refunds(

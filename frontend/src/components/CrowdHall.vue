@@ -11,6 +11,16 @@ const router = useRouter()
 const pendingOrders = ref([])
 const isCreator = ref(false)
 const loadingOrders = ref(false)
+const publicConfig = ref({ creator_rate: 0.30, deposit_amount: 20.0 })
+
+const fetchPublicConfig = async () => {
+  try {
+    const res = await request.get('/config/public')
+    publicConfig.value = res.data
+  } catch (e) {
+    // 使用默认值
+  }
+}
 
 const fetchOrders = async () => {
   loadingOrders.value = true
@@ -85,6 +95,7 @@ const goApply = () => {
 
 onMounted(() => {
   isCreator.value = auth.isCreator
+  fetchPublicConfig()
   fetchOrders()
   // 每 60 秒刷新订单列表
   setInterval(fetchOrders, 60000)
@@ -98,9 +109,10 @@ onMounted(() => {
       <div class="earn-info">
         <h4>制作者收益</h4>
         <ul>
-          <li>每完成一单代做服务，获得订单金额的 <strong>30%</strong> 作为报酬</li>
+          <li>申请成为制作者，可以为其他用户代做简历</li>
+          <li>每完成一单代做服务，获得订单金额的 <strong>{{ (publicConfig.creator_rate * 100).toFixed(0) }}%</strong> 作为报酬</li>
           <li>自由接单，时间灵活</li>
-          <li>报酬直接进入钱包，满 50 元可提现</li>
+          <li>报酬直接进入钱包，满 <strong>{{ publicConfig.deposit_amount.toFixed(0) }} 元</strong> 可提现</li>
         </ul>
       </div>
       <van-button type="primary" round block @click="goApply">立即申请</van-button>
