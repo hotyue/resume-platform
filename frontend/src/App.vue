@@ -22,6 +22,7 @@ watch(() => route.query.ref, (ref) => {
 
 // ─── 未读消息数 ───
 const unreadCount = ref(0)
+const unreadOrders = ref([])
 
 // ─── 心跳 WebSocket ───
 let heartbeatWS = null
@@ -133,8 +134,16 @@ async function pollUnreadCount() {
     if (res.ok) {
       const data = await res.json()
       unreadCount.value = data.unread_count || 0
+      unreadOrders.value = data.unread_orders || []
     }
   } catch {}
+}
+
+// 点击角标 → 进入第一个未读订单的聊天页
+function onBadgeClick() {
+  if (unreadOrders.value.length > 0) {
+    router.push(`/chat/${unreadOrders.value[0].order_id}`)
+  }
 }
 
 // ─── 监听路由变化，进入聊天页时标记已读并刷新未读数 ───
@@ -237,8 +246,11 @@ const doLogout = () => {
             <van-icon :name="props.active ? tab.icon : tab.icon" />
           </template>
           <template #default>
-            <span>{{ tab.label }}</span>
-            <van-badge v-if="tab.path === '/user' && unreadCount > 0" :content="unreadCount > 99 ? '99+' : unreadCount" class="tab-badge" />
+            <span v-if="tab.path === '/user' && unreadCount > 0" @click.stop="onBadgeClick" style="cursor: pointer">
+              {{ tab.label }}
+              <van-badge :content="unreadCount > 99 ? '99+' : unreadCount" class="tab-badge" />
+            </span>
+            <span v-else>{{ tab.label }}</span>
           </template>
         </van-tabbar-item>
       </van-tabbar>

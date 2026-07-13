@@ -2624,26 +2624,42 @@ async def get_unread_count(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """获取当前用户的未读消息总数"""
+    """获取当前用户的未读消息总数 + 未读订单列表"""
     user_id = current_user["id"]
     # 找出用户参与的所有订单
-    orders_as_buyer = db.query(m.Order.id).filter(m.Order.user_id == user_id).subquery()
-    orders_as_creator = db.query(m.Order.id).filter(m.Order.creator_id == user_id).subquery()
+    user_orders = db.query(m.Order.id).filter(
+        (m.Order.user_id == user_id) | (m.Order.creator_id == user_id)
+    ).subquery()
     # 未读 = 别人发给我的
     count = (
         db.query(func.count(m.OrderMessage.id))
         .filter(
-            m.OrderMessage.order_id.in_(
-                db.query(m.Order.id).filter(
-                    (m.Order.user_id == user_id) | (m.Order.creator_id == user_id)
-                )
-            ),
+            m.OrderMessage.order_id.in_(user_orders),
             m.OrderMessage.sender_id != user_id,
             m.OrderMessage.is_read == False,
         )
         .scalar() or 0
     )
-    return {"unread_count": count}
+    # 按订单分组获取未读订单列表（含每个订单的未读数）
+    unread_orders = (
+        db.query(
+            m.OrderMessage.order_id,
+            func.count(m.OrderMessage.id).label("unread")
+        )
+        .filter(
+            m.OrderMessage.order_id.in_(user_orders),
+            m.OrderMessage.sender_id != user_id,
+            m.OrderMessage.is_read == False,
+        )
+        .group_by(m.OrderMessage.order_id)
+        .all()
+    )
+    unread_list = [{"order_id": row.order_id, "unread": row.unread} for row in unread_orders]
+
+    return {
+        "unread_count": count,
+        "unread_orders": unread_list,
+    }
 
 
 @app.patch("/api/v1/orders/{order_id}/messages/read")
