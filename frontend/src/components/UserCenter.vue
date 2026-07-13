@@ -273,16 +273,30 @@ const onTabChange = (index) => {
   if (index === 3) fetchCustomOrders()
 }
 
+const copyText = async (text, msg) => {
+  if (!text) return showToast(msg || '暂无内容')
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    // fallback for HTTP / non-secure context
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
+  showSuccessToast(msg || '已复制')
+}
+
 const copyInviteLink = () => {
-  if (!userInfo.value?.invite_url) return showToast('暂无邀请链接')
-  navigator.clipboard.writeText(userInfo.value.invite_url)
-  showSuccessToast('邀请链接已复制')
+  copyText(userInfo.value?.invite_url, '暂无邀请链接')
 }
 
 const copyInviteCode = () => {
-  if (!userInfo.value?.invite_code) return showToast('暂无邀请码')
-  navigator.clipboard.writeText(userInfo.value.invite_code)
-  showSuccessToast('邀请码已复制')
+  copyText(userInfo.value?.invite_code, '暂无邀请码')
 }
 
 const submitWithdraw = async () => {
