@@ -95,9 +95,15 @@ onMounted(() => {
   <div class="crowd-hall">
     <!-- 非制作者提示 -->
     <div v-if="!isCreator" class="not-creator">
-      <van-empty description="申请加入制作者，即可接单赚取报酬">
-        <van-button type="primary" round @click="goApply">立即申请</van-button>
-      </van-empty>
+      <div class="earn-info">
+        <h4>制作者收益</h4>
+        <ul>
+          <li>每完成一单代做服务，获得订单金额的 <strong>30%</strong> 作为报酬</li>
+          <li>自由接单，时间灵活</li>
+          <li>报酬直接进入钱包，满 50 元可提现</li>
+        </ul>
+      </div>
+      <van-button type="primary" round block @click="goApply">立即申请</van-button>
     </div>
 
     <div v-else>
@@ -146,7 +152,11 @@ onMounted(() => {
 
 <style scoped>
 .crowd-hall { padding-bottom: 20px; background: #f7f8fa; min-height: 100vh; }
-.not-creator { padding: 60px 15px; }
+.not-creator { padding: 30px 15px; }
+
+.earn-info { background: white; border-radius: 10px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.earn-info h4 { margin: 0 0 10px; font-size: 14px; color: #323233; }
+.earn-info ul { margin: 0; padding-left: 18px; font-size: 13px; color: #666; line-height: 2; }
 
 .loading { text-align: center; margin-top: 30px; color: #999; }
 .empty { text-align: center; color: #999; padding: 40px 0; }

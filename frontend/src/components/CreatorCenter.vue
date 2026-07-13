@@ -294,14 +294,6 @@ onMounted(() => {
         <van-button type="primary" round block @click="openApply">
           立即申请入驻
         </van-button>
-        <div class="earn-info">
-          <h4>制作者收益</h4>
-          <ul>
-            <li>每完成一单代做服务，获得订单金额的 <strong>30%</strong> 作为报酬</li>
-            <li>自由接单，时间灵活</li>
-            <li>报酬直接进入钱包，满 50 元可提现</li>
-          </ul>
-        </div>
       </div>
 
       <div v-else class="apply-result">
@@ -544,10 +536,6 @@ onMounted(() => {
 .no-apply-text { text-align: center; color: #666; font-size: 14px; margin-bottom: 15px; }
 
 .agreement-link { text-align: center; color: #07c160; font-size: 13px; margin: 12px 0; cursor: pointer; }
-
-.earn-info { background: white; border-radius: 8px; padding: 15px; margin-top: 15px; }
-.earn-info h4 { margin: 0 0 10px; font-size: 14px; color: #323233; }
-.earn-info ul { margin: 0; padding-left: 18px; font-size: 13px; color: #666; line-height: 2; }
 
 .apply-result { padding: 5px 0; }
 .apply-actions { padding: 0 15px; }
