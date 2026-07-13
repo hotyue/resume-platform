@@ -222,6 +222,10 @@ const onDeliverySuccess = () => {
   fetchOrders()
 }
 
+const openChat = (orderId) => {
+  router.push(`/chat/${orderId}`)
+}
+
 const statusLabel = (s) => {
   const map = {
     pending: '待审核',
@@ -502,7 +506,7 @@ onMounted(() => {
               </div>
               <div class="oc-row">
                 <span class="oc-label">下单用户</span>
-                <span class="oc-val">{{ o.user_name || '未知' }}</span>
+                <span class="oc-val oc-user-link" @click="openChat(o.id)">{{ o.user_name || '未知' }}</span>
               </div>
               <div class="oc-row">
                 <span class="oc-label">接单日期</span>
@@ -709,6 +713,7 @@ onMounted(() => {
 .oc-val { font-size: 13px; color: #323233; text-align: right; word-break: break-all; }
 .oc-commission { color: #07c160; font-weight: 600; }
 .oc-accepted { color: #07c160; }
+.oc-user-link { color: #1989fa; cursor: pointer; }
 
 .oc-req { margin-top: 8px; padding: 8px 10px; background: #f7f8fa; border-radius: 6px; }
 .oc-req-label { font-size: 11px; color: #999; margin-bottom: 4px; }

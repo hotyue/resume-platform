@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -1385,6 +1385,7 @@ async def get_creator_orders(
             accept_hours_remaining = round(remaining, 1)
 
         out.append({
+            "id": o.id,
             "order_no": o.order_no,
             "creator_id": o.creator_id,
             "order_amount": o.amount,
@@ -2269,3 +2270,252 @@ async def get_thirdparty_list(db: Session = Depends(get_db),
             for r in records
         ]
     }
+
+
+# ============================================================================
+# 订单聊天系统
+# ============================================================================
+
+from collections import defaultdict
+
+# 连接管理: order_id -> [WebSocket, ...]
+active_chat_connections: dict[int, list] = defaultdict(list)
+
+
+def is_chat_participant(order: m.Order, user_id: int) -> bool:
+    """检查用户是否为订单参与者（下单用户或制作者）"""
+    return order.user_id == user_id or order.creator_id == user_id
+
+
+@app.websocket("/ws/orders/{order_id}/chat")
+async def chat_websocket(websocket: WebSocket, order_id: int, token: str = Query(None)):
+    """订单聊天 WebSocket 端点"""
+    # JWT 鉴权
+    try:
+        user = auth.get_current_user(token=token)
+    except Exception:
+        await websocket.close(code=4001, reason="Authentication failed")
+        return
+
+    db = SessionLocal()
+    try:
+        order = db.query(m.Order).filter(m.Order.id == order_id).first()
+        if not order:
+            await websocket.close(code=4004, reason="Order not found")
+            return
+        if not is_chat_participant(order, user["id"]):
+            await websocket.close(code=4003, reason="Not a participant")
+            return
+    finally:
+        db.close()
+
+    await websocket.accept()
+    active_chat_connections[order_id].append(websocket)
+
+    # 连接时推送最近 50 条消息
+    db = SessionLocal()
+    try:
+        msgs = (
+            db.query(m.OrderMessage)
+            .filter(m.OrderMessage.order_id == order_id)
+            .order_by(m.OrderMessage.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        history = []
+        for msg in reversed(msgs):
+            history.append({
+                "type": "message",
+                "id": msg.id,
+                "order_id": msg.order_id,
+                "sender_id": msg.sender_id,
+                "content": msg.content,
+                "attachment_url": msg.attachment_url,
+                "msg_type": msg.msg_type,
+                "is_read": msg.is_read,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            })
+        if history:
+            await websocket.send_json({"type": "history", "messages": history})
+    finally:
+        db.close()
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                import json as json_mod
+                msg_data = json_mod.loads(data)
+            except Exception:
+                continue
+
+            if msg_data.get("type") == "message":
+                content = msg_data.get("content", "").strip()
+                if not content:
+                    continue
+                attachment_url = msg_data.get("attachment_url")
+                msg_type = msg_data.get("msg_type", "text")
+
+                # 写入数据库
+                db = SessionLocal()
+                try:
+                    new_msg = m.OrderMessage(
+                        order_id=order_id,
+                        sender_id=user["id"],
+                        content=content,
+                        attachment_url=attachment_url,
+                        msg_type=msg_type,
+                    )
+                    db.add(new_msg)
+                    db.commit()
+                    msg_payload = {
+                        "type": "message",
+                        "id": new_msg.id,
+                        "order_id": new_msg.order_id,
+                        "sender_id": new_msg.sender_id,
+                        "content": new_msg.content,
+                        "attachment_url": new_msg.attachment_url,
+                        "msg_type": new_msg.msg_type,
+                        "is_read": False,
+                        "created_at": new_msg.created_at.isoformat() if new_msg.created_at else None,
+                    }
+                finally:
+                    db.close()
+
+                # 广播给该订单所有连接
+                for conn in list(active_chat_connections[order_id]):
+                    try:
+                        await conn.send_json(msg_payload)
+                    except Exception:
+                        pass
+
+    except WebSocketDisconnect:
+        active_chat_connections[order_id].remove(websocket)
+        if not active_chat_connections[order_id]:
+            del active_chat_connections[order_id]
+
+
+def _message_to_dict(msg: m.OrderMessage) -> dict:
+    """OrderMessage → dict 转换"""
+    return {
+        "id": msg.id,
+        "order_id": msg.order_id,
+        "sender_id": msg.sender_id,
+        "content": msg.content,
+        "attachment_url": msg.attachment_url,
+        "msg_type": msg.msg_type,
+        "is_read": msg.is_read,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+    }
+
+
+@app.get("/api/v1/orders/{order_id}/messages")
+async def get_order_messages(
+    order_id: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """获取订单历史消息（分页，从旧到新）"""
+    order = db.query(m.Order).filter(m.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(404, "订单不存在")
+    if not is_chat_participant(order, current_user["id"]):
+        raise HTTPException(403, "无权查看此订单消息")
+
+    msgs = (
+        db.query(m.OrderMessage)
+        .filter(m.OrderMessage.order_id == order_id)
+        .order_by(m.OrderMessage.created_at.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return {"messages": [_message_to_dict(m) for m in msgs]}
+
+
+@app.post("/api/v1/orders/{order_id}/messages")
+async def send_order_message(
+    order_id: int,
+    content: str = Form(...),
+    msg_type: str = Form("text"),
+    attachment: UploadFile = File(None),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """发送订单消息（支持附件上传）"""
+    order = db.query(m.Order).filter(m.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(404, "订单不存在")
+    if not is_chat_participant(order, current_user["id"]):
+        raise HTTPException(403, "无权发送消息")
+
+    attachment_url = None
+    if attachment and attachment.filename:
+        # 保存附件到 chat_attachments 目录
+        import uuid as uuid_mod
+        upload_dir = os.path.join(ASSETS_DIR, "chat_attachments")
+        os.makedirs(upload_dir, exist_ok=True)
+        ext = os.path.splitext(attachment.filename)[1]
+        save_name = f"{uuid_mod.uuid4().hex}{ext}"
+        save_path = os.path.join(upload_dir, save_name)
+        with open(save_path, "wb") as f:
+            f.write(attachment.file.read())
+        attachment_url = f"/assets/chat_attachments/{save_name}"
+        # 根据附件类型确定 msg_type
+        content_type = attachment.content_type or ""
+        if content_type.startswith("image/"):
+            msg_type = "image"
+        else:
+            msg_type = "file"
+
+    # 文本内容不能为空
+    if not content.strip() and not attachment_url:
+        raise HTTPException(400, "消息内容不能为空")
+
+    new_msg = m.OrderMessage(
+        order_id=order_id,
+        sender_id=current_user["id"],
+        content=content.strip() or "(文件)",
+        attachment_url=attachment_url,
+        msg_type=msg_type,
+    )
+    db.add(new_msg)
+    db.commit()
+    db.refresh(new_msg)
+
+    msg_payload = _message_to_dict(new_msg)
+
+    # WebSocket 广播
+    for conn in list(active_chat_connections.get(order_id, [])):
+        try:
+            await conn.send_json(msg_payload)
+        except Exception:
+            pass
+
+    return msg_payload
+
+
+@app.patch("/api/v1/orders/{order_id}/messages/read")
+async def mark_messages_read(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """标记订单消息为已读"""
+    order = db.query(m.Order).filter(m.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(404, "订单不存在")
+    if not is_chat_participant(order, current_user["id"]):
+        raise HTTPException(403, "无权操作")
+
+    # 标记发给当前用户的所有消息为已读
+    db.query(m.OrderMessage).filter(
+        m.OrderMessage.order_id == order_id,
+        m.OrderMessage.sender_id != current_user["id"],
+        m.OrderMessage.is_read == False,
+    ).update({"is_read": True})
+    db.commit()
+
+    return {"message": "已标记为已读"}

@@ -247,3 +247,17 @@ class ThirdPartyAuth(Base):
     token = Column(Text, nullable=True)                   # 第三方 access_token
     created_at = Column(DateTime, default=datetime.now)
     user = relationship("User")
+
+
+class OrderMessage(Base):
+    """订单聊天消息（持久化存储，作为纠纷仲裁依据）"""
+    __tablename__ = "order_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
+    sender_id = Column(Integer, nullable=False)           # 发送方 user_id
+    content = Column(Text, nullable=False)                # 文本内容
+    attachment_url = Column(String(512), nullable=True)   # 附件URL（图片/文件）
+    msg_type = Column(String(20), default="text")         # text / image / file / system
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    order = relationship("Order")

@@ -33,6 +33,12 @@ const routes = [
     component: () => import('./components/UserCenter.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/chat/:order_id',
+    name: 'OrderChat',
+    component: () => import('./components/OrderChat.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({
