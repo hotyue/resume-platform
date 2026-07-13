@@ -243,14 +243,13 @@ const doLogout = () => {
       <van-tabbar v-model="activeTab" @change="onTabChange" fixed safe-area-inset-bottom>
         <van-tabbar-item v-for="(tab, idx) in tabs" :key="tab.path" :icon="tab.icon">
           <template #icon="props">
-            <van-icon :name="props.active ? tab.icon : tab.icon" />
+            <div class="icon-wrapper">
+              <van-icon :name="props.active ? tab.icon : tab.icon" />
+              <van-badge v-if="tab.path === '/user' && unreadCount > 0" :content="unreadCount > 99 ? '99+' : unreadCount" class="icon-badge" @click.stop="onBadgeClick" />
+            </div>
           </template>
           <template #default>
-            <span v-if="tab.path === '/user' && unreadCount > 0" @click.stop="onBadgeClick" style="cursor: pointer">
-              {{ tab.label }}
-              <van-badge :content="unreadCount > 99 ? '99+' : unreadCount" class="tab-badge" />
-            </span>
-            <span v-else>{{ tab.label }}</span>
+            {{ tab.label }}
           </template>
         </van-tabbar-item>
       </van-tabbar>
@@ -285,14 +284,21 @@ body {
   z-index: 9999 !important;
 }
 
-.tab-badge {
+.icon-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.icon-badge {
   position: absolute;
-  top: -8px;
-  right: -12px;
-  min-width: 18px;
-  height: 18px;
-  font-size: 11px;
-  line-height: 18px;
-  padding: 0 5px;
+  top: -6px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 4px;
+  z-index: 1;
+  cursor: pointer;
 }
 </style>

@@ -459,7 +459,10 @@ onMounted(() => {
           <div v-for="o in filteredOrders" :key="o.order_no" class="order-card">
             <div class="oc-header">
               <span class="oc-order-no">ORD-{{ o.order_no ? o.order_no.slice(-8) : '' }}</span>
-              <van-tag round :type="orderStatusType(o.status)">{{ orderStatusLabel(o.status) }}</van-tag>
+              <div class="oc-header-right">
+                <van-badge v-if="o.unread_count > 0" :content="o.unread_count > 99 ? '99+' : o.unread_count" class="oc-unread-badge" @click.stop="openChat(o.id)" />
+                <van-tag round :type="orderStatusType(o.status)">{{ orderStatusLabel(o.status) }}</van-tag>
+              </div>
             </div>
 
             <!-- 进度条 -->
@@ -706,6 +709,8 @@ onMounted(() => {
 
 .oc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
 .oc-order-no { font-size: 13px; color: #999; font-family: monospace; }
+.oc-header-right { display: flex; align-items: center; gap: 6px; }
+.oc-unread-badge { cursor: pointer; }
 
 .oc-body { margin-bottom: 10px; }
 .oc-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }

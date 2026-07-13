@@ -1385,6 +1385,17 @@ async def get_creator_orders(
             remaining = (o.freeze_until - datetime.now()).total_seconds() / 3600
             accept_hours_remaining = round(remaining, 1)
 
+        # 制作者未读消息数
+        unread_count = (
+            db.query(func.count(m.OrderMessage.id))
+            .filter(
+                m.OrderMessage.order_id == o.id,
+                m.OrderMessage.sender_id != current_user["id"],
+                m.OrderMessage.is_read == False,
+            )
+            .scalar() or 0
+        )
+
         out.append({
             "id": o.id,
             "order_no": o.order_no,
@@ -1403,6 +1414,7 @@ async def get_creator_orders(
             "accept_hours_remaining": accept_hours_remaining,
             "template_name": t.name,
             "user_name": u.username if u else "未知",
+            "unread_count": unread_count,
         })
     return out
 
