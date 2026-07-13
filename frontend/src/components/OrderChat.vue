@@ -11,8 +11,12 @@
         <div
           v-for="msg in messages"
           :key="msg.id"
+          :data-msg-id="msg.id"
           class="message-wrapper"
-          :class="msg.sender_id === myUserId ? 'message-self' : 'message-other'"
+          :class="[
+            msg.sender_id === myUserId ? 'message-self' : 'message-other',
+            { 'message-unread': !msg.is_read && msg.sender_id !== myUserId }
+          ]"
         >
           <div class="message-bubble">
             <!-- 系统消息 -->
@@ -182,12 +186,50 @@ const scrollToBottom = () => {
   })
 }
 
+// 滚动到第一条未读消息；全已读则滚动到底部
+const scrollToUnread = () => {
+  nextTick(() => {
+    const container = msgContainerRef.value
+    if (!container) return
+
+    // 找第一条未读消息的 DOM 元素
+    const unreadMsg = messages.value.find(m => !m.is_read && m.sender_id !== myUserId.value)
+    if (unreadMsg) {
+      const el = container.querySelector(`[data-msg-id="${unreadMsg.id}"]`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+    // 全已读或没找到 → 滚动到底部
+    scrollToBottom()
+  })
+}
+
+// 标记所有消息为已读
+const markMessagesRead = async () => {
+  try {
+    await request.patch(`/orders/${orderId.value}/messages/read`)
+    // 更新本地状态
+    messages.value.forEach(m => {
+      if (m.sender_id !== myUserId.value) {
+        m.is_read = true
+      }
+    })
+  } catch (e) {
+    // 静默失败
+  }
+}
+
 // 加载历史消息
 const loadHistory = async () => {
   try {
     const res = await request.get(`/orders/${orderId.value}/messages?offset=0&limit=100`)
     messages.value = res.data.messages || []
-    scrollToBottom()
+    // 标记为已读
+    await markMessagesRead()
+    // 滚动到已读末尾/未读开头
+    scrollToUnread()
   } catch (e) {
     showToast('加载消息失败')
   } finally {
@@ -230,11 +272,15 @@ const connectWS = () => {
       const data = JSON.parse(event.data)
       if (data.type === 'history') {
         messages.value = data.messages || []
-        scrollToBottom()
+        scrollToUnread()
       } else if (data.type === 'message') {
         // 避免重复添加（自己发送的消息已经通过响应添加了）
         const exists = messages.value.find((m) => m.id === data.id)
         if (!exists) {
+          // 收到别人的消息，已在聊天页所以标记为已读
+          if (data.sender_id !== myUserId.value) {
+            data.is_read = true
+          }
           messages.value.push(data)
           scrollToBottom()
         }
@@ -434,6 +480,16 @@ onUnmounted(() => {
 .message-self .message-bubble {
   background: #1989fa;
   color: #fff;
+}
+
+.message-unread .message-bubble {
+  border-left: 3px solid #1989fa;
+  background: #e8f4fd;
+}
+
+.message-unread.message-self .message-bubble {
+  border-left: none;
+  background: #1989fa;
 }
 
 .system-msg {
