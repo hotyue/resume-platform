@@ -20,7 +20,11 @@ class User(Base):
     # 提现账户
     alipay_account = Column(String(100), nullable=True)
     wechat_account = Column(String(100), nullable=True)
+    # 第三方登录
+    wechat_openid = Column(String(100), nullable=True)    # 微信 OpenID
+    alipay_user_id = Column(String(100), nullable=True)   # 支付宝 USERID
     total_withdrawn = Column(Float, default=0.0)
+    frozen_withdraw = Column(Float, default=0.0)         # 提现冻结额（待审核中）
     frozen_commission = Column(Float, default=0.0)
     # 分佣统计（只读累加，不参与扣减）
     referral_commission = Column(Float, default=0.0)    # 推广分佣累计
@@ -31,8 +35,8 @@ class User(Base):
 
     @property
     def available_balance(self):
-        """可提现余额（扣除保证金）"""
-        return self.wallet_balance - self.deposit_frozen
+        """可提现余额（扣除保证金和提现冻结额）"""
+        return self.wallet_balance - self.deposit_frozen - (self.frozen_withdraw or 0.0)
 
 
 class Template(Base):
@@ -128,7 +132,9 @@ class WithdrawRequest(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     amount = Column(Float, nullable=False)
     payment_info = Column(String(200), nullable=False)
+    account_type = Column(String(20), default="alipay")   # alipay / wechat
     status = Column(String(20), default="pending")
+    transfer_proof = Column(String(200), nullable=True)    # 转账凭证号/截图描述
     admin_remark = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     reviewed_at = Column(DateTime, nullable=True)
@@ -226,5 +232,18 @@ class CreatorAuditLog(Base):
     action = Column(String(50), nullable=False)           # penalty_deducted / order_republished / cycle_reset / creator_exit_success / creator_exit_forced / admin_intervened
     detail = Column(Text, nullable=True)                  # JSON 字符串记录详情
     penalty_amount = Column(Float, default=0.0)           # 违约金金额（如适用）
+    created_at = Column(DateTime, default=datetime.now)
+    user = relationship("User")
+
+
+class ThirdPartyAuth(Base):
+    """第三方登录授权记录"""
+    __tablename__ = "third_party_auth"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    provider = Column(String(20), nullable=False)         # wechat / alipay
+    openid = Column(String(100), nullable=False)          # 第三方唯一标识
+    union_id = Column(String(100), nullable=True)         # 微信 UnionID
+    token = Column(Text, nullable=True)                   # 第三方 access_token
     created_at = Column(DateTime, default=datetime.now)
     user = relationship("User")

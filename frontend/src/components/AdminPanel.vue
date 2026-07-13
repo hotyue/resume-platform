@@ -303,25 +303,74 @@ const withdrawTabs = [
   { key: 'rejected', label: '已拒绝' },
 ]
 
+const withdrawReviewForm = {
+  request_id: null,
+  status: '',
+  remark: '',
+  transfer_proof: '',
+}
+
 const handleWithdrawReview = async (w, action) => {
   const label = action === 'approved' ? '通过' : '拒绝'
-  showConfirmDialog({
-    title: `确认${label}`,
-    message: `${label}「${w.username}」的 ¥${w.amount} 提现申请？`,
-  }).then(async () => {
-    try {
-      await request.post('/admin/withdrawals/review', {
-        request_id: w.id,
-        status: action,
-        remark: action === 'approved' ? '已转账' : '资料不完整',
-      })
-      showSuccessToast(`${label}成功`)
-      await fetchWithdrawals()
-      await fetchDashboard()
-    } catch (e) {
-      showToast(e.response?.data?.detail || '操作失败')
-    }
-  }).catch(() => {})
+
+  if (action === 'approved') {
+    // 通过时需要输入转账凭证
+    showConfirmDialog({
+      title: `通过提现`,
+      message: `<div style="text-align:left;padding:8px 0">
+        <p>用户：${w.username}</p>
+        <p>金额：¥${w.amount}</p>
+        <p>收款：${w.payment_info}</p>
+        <p>类型：${w.account_type === 'alipay' ? '支付宝' : w.account_type === 'wechat' ? '微信' : '其他'}</p>
+        <input id="transferProof" placeholder="请输入转账凭证号" style="width:100%;padding:8px;margin-top:8px;border:1px solid #ddd;border-radius:4px;font-size:14px"/>
+      </div>`,
+      beforeClose: async (actionType, done) => {
+        if (actionType === 'confirm') {
+          const proofInput = document.getElementById('transferProof')
+          withdrawReviewForm.transfer_proof = proofInput ? proofInput.value.trim() : ''
+          if (!withdrawReviewForm.transfer_proof) {
+            showToast('请输入转账凭证号')
+            return // 阻止关闭
+          }
+          done(true)
+        } else {
+          done(true)
+        }
+      },
+    }).then(async () => {
+      try {
+        await request.post('/admin/withdrawals/review', {
+          request_id: w.id,
+          status: 'approved',
+          remark: '已转账',
+          transfer_proof: withdrawReviewForm.transfer_proof,
+        })
+        showSuccessToast('通过成功')
+        await fetchWithdrawals()
+        await fetchDashboard()
+      } catch (e) {
+        showToast(e.response?.data?.detail || '操作失败')
+      }
+    }).catch(() => {})
+  } else {
+    showConfirmDialog({
+      title: `确认拒绝`,
+      message: `拒绝「${w.username}」的 ¥${w.amount} 提现申请？（余额将自动解冻）`,
+    }).then(async () => {
+      try {
+        await request.post('/admin/withdrawals/review', {
+          request_id: w.id,
+          status: 'rejected',
+          remark: '资料不完整',
+        })
+        showSuccessToast('拒绝成功，余额已解冻')
+        await fetchWithdrawals()
+        await fetchDashboard()
+      } catch (e) {
+        showToast(e.response?.data?.detail || '操作失败')
+      }
+    }).catch(() => {})
+  }
 }
 
 // ========== 系统配置 ==========
@@ -701,8 +750,10 @@ onMounted(() => {
               <van-tag :type="withdrawStatusType(w.status)" round size="small">{{ withdrawStatusLabel(w.status) }}</van-tag>
             </div>
             <div class="withdraw-amount">¥{{ w.amount.toFixed(2) }}</div>
+            <div class="withdraw-info">类型: {{ w.account_type === 'alipay' ? '支付宝' : w.account_type === 'wechat' ? '微信' : '其他' }}</div>
             <div class="withdraw-info">收款: {{ w.payment_info }}</div>
             <div v-if="w.admin_remark" class="withdraw-remark">备注: {{ w.admin_remark }}</div>
+            <div v-if="w.transfer_proof" class="withdraw-remark">凭证: {{ w.transfer_proof }}</div>
             <div class="withdraw-time">{{ w.created_at }}</div>
             <div v-if="w.status === 'pending'" class="withdraw-actions">
               <van-button type="success" size="small" round @click="handleWithdrawReview(w, 'approved')">通过</van-button>

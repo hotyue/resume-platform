@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   { path: '/login', name: 'Login', component: () => import('./components/Login.vue') },
   { path: '/register', name: 'Register', component: () => import('./components/Register.vue') },
+  { path: '/auth/callback/:provider', name: 'OAuthCallback', component: () => import('./components/OAuthCallback.vue') },
   {
     path: '/',
     name: 'Home',

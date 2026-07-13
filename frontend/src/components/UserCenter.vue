@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import request from '../api/request.js'
-import { showToast, showSuccessToast, showDialog, showLoadingToast, closeToast } from 'vant'
+import { showToast, showSuccessToast, showDialog, showConfirmDialog, showLoadingToast, closeToast } from 'vant'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -21,6 +21,7 @@ const statsLoading = ref(false)
 const showWithdraw = ref(false)
 const withdrawAmount = ref('')
 const paymentInfo = ref('')
+const accountType = ref('alipay')
 
 // 季度选择
 const selectedQuarter = ref('')
@@ -319,6 +320,7 @@ const submitWithdraw = async () => {
     await request.post('/user/withdraw', {
       amount,
       payment_info: paymentInfo.value,
+      account_type: accountType.value,
     })
     closeToast()
     showSuccessToast('提现申请已提交，请等待管理员审核')
@@ -336,6 +338,35 @@ const submitWithdraw = async () => {
 const withdrawAvailable = computed(() => {
   return (userInfo.value?.available_balance || 0).toFixed(2)
 })
+
+const fillAccount = (type, account) => {
+  accountType.value = type
+  paymentInfo.value = account
+}
+
+// 第三方登录绑定
+const handleOAuthBind = (provider) => {
+  window.location.href = `/api/v1/auth/oauth/${provider}/authorize?redirect=/user`
+}
+
+const handleUnbind = async (provider) => {
+  const label = provider === 'wechat' ? '微信' : '支付宝'
+  showConfirmDialog({
+    title: '确认解绑',
+    message: `确定解绑${label}账号？`,
+  }).then(async () => {
+    try {
+      showLoadingToast({ message: '解绑中...', forbidClick: true })
+      await request.delete(`/user/oauth/${provider}`)
+      closeToast()
+      showSuccessToast('解绑成功')
+      await fetchUserInfo()
+    } catch (e) {
+      closeToast()
+      showToast(e.response?.data?.detail || '解绑失败')
+    }
+  }).catch(() => {})
+}
 
 const teamCount = computed(() => {
   if (!teamData.value) return 0
@@ -404,6 +435,10 @@ onMounted(() => {
             <div class="stat-val">¥{{ (userInfo.wallet_balance || 0).toFixed(2) }}</div>
             <div class="stat-lbl">账户余额</div>
           </div>
+          <div class="stat-item" v-if="(userInfo.frozen_withdraw || 0) > 0">
+            <div class="stat-val">¥{{ (userInfo.frozen_withdraw || 0).toFixed(2) }}</div>
+            <div class="stat-lbl">提现冻结</div>
+          </div>
           <div class="stat-item" v-if="userInfo.deposit_frozen > 0">
             <div class="stat-val">¥{{ userInfo.deposit_frozen.toFixed(2) }}</div>
             <div class="stat-lbl">保证金</div>
@@ -426,7 +461,7 @@ onMounted(() => {
           </van-button>
         </div>
         <div class="tips" v-if="(userInfo.available_balance || 0) < 50">
-          可提现 ¥{{ withdrawAvailable }}（满50元可提，保证金不可提）
+          可提现 ¥{{ withdrawAvailable }}（满50元可提，保证金和提现冻结额不可提）
         </div>
       </div>
 
@@ -661,10 +696,24 @@ onMounted(() => {
       <div class="withdraw-form">
         <div class="withdraw-info">
           <p>可提现额度：<strong>¥{{ withdrawAvailable }}</strong></p>
-          <p class="withdraw-hint">（余额 ¥{{ (userInfo.wallet_balance || 0).toFixed(2) }} - 冻结保证金 ¥{{ (userInfo.deposit_frozen || 0).toFixed(2) }}）</p>
+          <p class="withdraw-hint">（余额 ¥{{ (userInfo.wallet_balance || 0).toFixed(2) }} - 冻结保证金 ¥{{ (userInfo.deposit_frozen || 0).toFixed(2) }} - 提现冻结 ¥{{ (userInfo.frozen_withdraw || 0).toFixed(2) }}）</p>
         </div>
         <van-field v-model="withdrawAmount" type="digit" label="提现金额" placeholder="请输入提现金额" />
-        <van-field v-model="paymentInfo" label="收款账号" placeholder="请输入支付宝账号/微信号" />
+        <van-radio-group v-model="accountType" direction="horizontal" class="account-type-group">
+          <van-radio name="alipay">支付宝</van-radio>
+          <van-radio name="wechat">微信</van-radio>
+          <van-radio name="other">其他</van-radio>
+        </van-radio-group>
+        <van-field v-model="paymentInfo" label="收款账号" placeholder="请输入收款账号" />
+        <div class="saved-accounts" v-if="userInfo.alipay_account || userInfo.wechat_account">
+          <p class="saved-label">已保存的账号：</p>
+          <van-tag v-if="userInfo.alipay_account" plain size="medium" @click="fillAccount('alipay', userInfo.alipay_account)" style="margin-right: 8px; cursor: pointer;">
+            支付宝: {{ userInfo.alipay_account }}
+          </van-tag>
+          <van-tag v-if="userInfo.wechat_account" plain size="medium" @click="fillAccount('wechat', userInfo.wechat_account)" style="cursor: pointer;">
+            微信: {{ userInfo.wechat_account }}
+          </van-tag>
+        </div>
         <p class="form-tips">注：最低提现50元，管理员将在48小时内人工审核并转账</p>
       </div>
     </van-dialog>
@@ -692,6 +741,31 @@ onMounted(() => {
         <p class="form-tips">退款申请提交后需管理员审核，仅可退款一次</p>
       </div>
     </van-dialog>
+
+    <!-- 第三方账号绑定 -->
+    <div class="oauth-bind-section">
+      <div class="section-title">第三方账号绑定</div>
+      <van-cell-group inset>
+        <van-cell title="微信" is-link @click="handleOAuthBind('wechat')">
+          <template #label>
+            <span v-if="userInfo.wechat_openid" class="bind-status bound">已绑定</span>
+            <span v-else class="bind-status unbound">未绑定</span>
+          </template>
+          <template #right-icon v-if="userInfo.wechat_openid">
+            <van-button size="mini" type="danger" plain @click.stop="handleUnbind('wechat')">解绑</van-button>
+          </template>
+        </van-cell>
+        <van-cell title="支付宝" is-link @click="handleOAuthBind('alipay')">
+          <template #label>
+            <span v-if="userInfo.alipay_user_id" class="bind-status bound">已绑定</span>
+            <span v-else class="bind-status unbound">未绑定</span>
+          </template>
+          <template #right-icon v-if="userInfo.alipay_user_id">
+            <van-button size="mini" type="danger" plain @click.stop="handleUnbind('alipay')">解绑</van-button>
+          </template>
+        </van-cell>
+      </van-cell-group>
+    </div>
 
     <!-- 退出登录 -->
     <div class="logout-section">
@@ -788,6 +862,12 @@ onMounted(() => {
 
 /* 定制订单 */
 .co-actions-row { display: flex; gap: 8px; margin-bottom: 8px; }
+
+.oauth-bind-section { margin: 16px 0; padding: 0 16px; }
+.section-title { font-size: 14px; color: #646566; margin-bottom: 12px; font-weight: 500; }
+.bind-status { font-size: 12px; }
+.bind-status.bound { color: #07c160; }
+.bind-status.unbound { color: #c8c9cc; }
 
 .logout-section { padding: 20px 15px 30px; }
 

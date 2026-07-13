@@ -115,6 +115,7 @@ class ReviewWithdrawReq(BaseModel):
     request_id: int
     status: str
     remark: str = ""
+    transfer_proof: str = ""     # 转账凭证号
 
 class ReviewApplicationReq(BaseModel):
     request_id: int
@@ -618,6 +619,7 @@ async def get_me(current_user: dict = Depends(get_current_user), db: Session = D
         "roles": roles,
         "wallet_balance": round(user.wallet_balance or 0, 2),
         "deposit_frozen": round(user.deposit_frozen or 0, 2),
+        "frozen_withdraw": round(user.frozen_withdraw or 0, 2),
         "available_balance": round(user.available_balance, 2),
         "invite_code": invite_code,
         "invite_url": invite_url,
@@ -691,9 +693,11 @@ async def withdraw(req: WithdrawReq, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="提现金额必须大于0")
     if user.available_balance < req.amount:
         raise HTTPException(status_code=400, detail=f"可提现余额不足（当前: {round(user.available_balance, 2)}）")
-    w = m.WithdrawRequest(user_id=user.id, amount=req.amount, payment_info=req.payment_info)
+    w = m.WithdrawRequest(user_id=user.id, amount=req.amount,
+                          payment_info=req.payment_info, account_type=req.account_type)
     db.add(w)
-    user.wallet_balance -= req.amount
+    # 方案C：申请时冻结，不扣余额
+    user.frozen_withdraw = (user.frozen_withdraw or 0.0) + req.amount
     db.commit()
     return {"id": w.id, "amount": req.amount, "status": "pending"}
 
@@ -924,7 +928,9 @@ async def admin_withdrawals(
     return {"total": total, "page": page, "page_size": page_size, "withdrawals": [{
         "id": w.id, "user_id": w.user_id, "username": u.username,
         "amount": w.amount, "payment_info": w.payment_info,
-        "status": w.status, "created_at": str(w.created_at),
+        "account_type": w.account_type, "status": w.status,
+        "transfer_proof": w.transfer_proof,
+        "created_at": str(w.created_at),
     } for w, u in results]}
 
 
@@ -940,14 +946,17 @@ async def review_withdraw(
         raise HTTPException(status_code=400, detail="已处理")
     w.status = req.status
     w.admin_remark = req.remark
+    w.transfer_proof = req.transfer_proof
     w.reviewed_at = datetime.now()
-    if req.status == "rejected":
-        user = db.query(m.User).filter(m.User.id == w.user_id).first()
-        if user:
-            user.wallet_balance += w.amount
-    else:
-        user = db.query(m.User).filter(m.User.id == w.user_id).first()
-        if user:
+    user = db.query(m.User).filter(m.User.id == w.user_id).first()
+    if user:
+        if req.status == "rejected":
+            # 拒绝：解冻，余额不动
+            user.frozen_withdraw = max(0, (user.frozen_withdraw or 0.0) - w.amount)
+        else:
+            # 批准：扣余额 + 解冻 + 记录提现统计
+            user.wallet_balance -= w.amount
+            user.frozen_withdraw = max(0, (user.frozen_withdraw or 0.0) - w.amount)
             user.total_withdrawn += w.amount
     db.commit()
     return {"id": w.id, "status": w.status}
@@ -1915,3 +1924,348 @@ async def get_user_stats(user_id: int, db: Session = Depends(get_db)):
 # ================= 静态文件服务 =================
 
 app.mount("/static", StaticFiles(directory="/root/assets"), name="static")
+
+
+# ================= 第三方登录 OAuth =================
+
+import urllib.parse
+import urllib.request
+import json as _json
+
+
+def _oauth_redirect(provider: str, state: str):
+    """构建 OAuth 授权跳转 URL"""
+    if provider == "wechat":
+        app_id = os.getenv("WECHAT_APP_ID")
+        redirect_uri = os.getenv("WECHAT_REDIRECT_URI")
+        if not app_id or not redirect_uri:
+            raise HTTPException(400, "微信 OAuth 未配置")
+        base = "https://open.weixin.qq.com/connect/qrconnect"
+        params = {
+            "appid": app_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "snsapi_login",
+            "state": state,
+        }
+        return f"{base}?{urllib.parse.urlencode(params)}#wechat_redirect"
+    elif provider == "alipay":
+        app_id = os.getenv("ALIPAY_APP_ID")
+        redirect_uri = os.getenv("ALIPAY_REDIRECT_URI")
+        if not app_id or not redirect_uri:
+            raise HTTPException(400, "支付宝 OAuth 未配置")
+        base = "https://openauth.alipay.com/oauth2/publicAppAuthorize.htm"
+        params = {
+            "app_id": app_id,
+            "redirect_uri": redirect_uri,
+            "scope": "auth_user",
+            "state": state,
+        }
+        return f"{base}?{urllib.parse.urlencode(params)}"
+    else:
+        raise HTTPException(400, f"不支持的提供商: {provider}")
+
+
+def _wechat_get_userinfo(code: str):
+    """通过微信 code 获取 access_token 和用户信息"""
+    app_id = os.getenv("WECHAT_APP_ID")
+    app_secret = os.getenv("WECHAT_APP_SECRET")
+    redirect_uri = os.getenv("WECHAT_REDIRECT_URI")
+    if not app_id or not app_secret or not redirect_uri:
+        raise HTTPException(500, "微信 OAuth 配置不完整")
+
+    # Step 1: 获取 access_token
+    token_url = "https://api.weixin.qq.com/sns/oauth2/access_token"
+    params = {
+        "appid": app_id,
+        "secret": app_secret,
+        "code": code,
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+    }
+    url = f"{token_url}?{urllib.parse.urlencode(params)}"
+    try:
+        resp = urllib.request.urlopen(url, timeout=10).read().decode()
+        data = _json.loads(resp)
+    except Exception as e:
+        raise HTTPException(500, f"微信授权失败: {str(e)}")
+
+    if "errcode" in data:
+        raise HTTPException(400, f"微信授权错误: {data.get('errmsg', '未知错误')}")
+
+    access_token = data["access_token"]
+    openid = data["openid"]
+    unionid = data.get("unionid")
+
+    # Step 2: 获取用户信息
+    info_url = f"https://api.weixin.qq.com/sns/userinfo?access_token={access_token}&openid={openid}&lang=zh_CN"
+    try:
+        resp = urllib.request.urlopen(info_url, timeout=10).read().decode()
+        userinfo = _json.loads(resp)
+    except Exception as e:
+        raise HTTPException(500, f"获取微信用户信息失败: {str(e)}")
+
+    if "errcode" in userinfo:
+        raise HTTPException(400, f"获取用户信息错误: {userinfo.get('errmsg', '未知错误')}")
+
+    return {
+        "openid": openid,
+        "unionid": unionid,
+        "nickname": userinfo.get("nickname", ""),
+        "headimgurl": userinfo.get("headimgurl", ""),
+        "access_token": access_token,
+    }
+
+
+def _alipay_get_userinfo(auth_code: str):
+    """通过支付宝 auth_code 获取用户信息"""
+    app_id = os.getenv("ALIPAY_APP_ID")
+    app_private_key = os.getenv("ALIPAY_PRIVATE_KEY")
+    redirect_uri = os.getenv("ALIPAY_REDIRECT_URI")
+    if not app_id or not app_private_key or not redirect_uri:
+        raise HTTPException(500, "支付宝 OAuth 配置不完整")
+
+    # 支付宝使用 RSA 签名，这里用简化方案：调用统一收单线下支付查询用户信息接口
+    # 实际上需要 alipay sdk，这里用 curl 方式
+    import subprocess
+    import base64
+    import hashlib
+    import time
+
+    # 构建请求
+    biz_content = _json.dumps({
+        "auth_code": auth_code,
+        "scope": "auth_user",
+    })
+
+    # 简化处理：实际生产需要 alipay-sdk
+    # 这里返回占位，等 SDK 接入后替换
+    raise HTTPException(501, "支付宝 OAuth 暂需安装 alipay-sdk-python，当前为框架占位")
+
+
+@app.get("/api/v1/auth/oauth/{provider}/redirect")
+async def oauth_redirect(provider: str, db: Session = Depends(get_db)):
+    """OAuth 授权跳转"""
+    import secrets
+    state = secrets.token_urlsafe(16)
+    # TODO: 将 state 存入 session/redis 用于防 CSRF
+    redirect_url = _oauth_redirect(provider, state)
+    return {"redirect_url": redirect_url}
+
+
+@app.get("/api/v1/auth/oauth/{provider}/callback")
+async def oauth_callback(provider: str, code: str, state: str, db: Session = Depends(get_db)):
+    """OAuth 回调处理"""
+    try:
+        if provider == "wechat":
+            userinfo = _wechat_get_userinfo(code)
+            openid = userinfo["openid"]
+            unionid = userinfo.get("unionid")
+            nickname = userinfo["nickname"]
+            access_token = userinfo["access_token"]
+        elif provider == "alipay":
+            userinfo = _alipay_get_userinfo(code)
+            openid = userinfo.get("userid", "")
+            unionid = None
+            nickname = userinfo.get("nickname", "")
+            access_token = None
+        else:
+            raise HTTPException(400, f"不支持的提供商: {provider}")
+
+        # 查找是否已绑定
+        existing = db.query(m.ThirdPartyAuth).filter(
+            m.ThirdPartyAuth.provider == provider,
+            m.ThirdPartyAuth.openid == openid,
+        ).first()
+
+        if existing:
+            # 已绑定 → 直接登录
+            user = db.query(m.User).filter(m.User.id == existing.user_id).first()
+            if not user:
+                raise HTTPException(404, "用户不存在")
+        else:
+            # 未绑定 → 查找是否通过 openid 关联
+            if provider == "wechat":
+                user = db.query(m.User).filter(m.User.wechat_openid == openid).first()
+            elif provider == "alipay":
+                user = db.query(m.User).filter(m.User.alipay_user_id == openid).first()
+
+            if user:
+                # 用户已有 openid 但无 ThirdPartyAuth 记录 → 补建
+                existing = m.ThirdPartyAuth(
+                    user_id=user.id,
+                    provider=provider,
+                    openid=openid,
+                    union_id=unionid,
+                    token=access_token,
+                )
+                db.add(existing)
+            else:
+                # 全新用户 → 自动注册
+                username = f"{provider}_{nickname[:10]}_{openid[-6:]}"
+                # 确保用户名唯一
+                counter = 1
+                while db.query(m.User).filter(m.User.username == username).first():
+                    username = f"{provider}_{nickname[:8]}_{openid[-6:]}_{counter}"
+                    counter += 1
+
+                user = m.User(
+                    username=username,
+                    role="user",
+                )
+                if provider == "wechat":
+                    user.wechat_openid = openid
+                elif provider == "alipay":
+                    user.alipay_user_id = openid
+
+                db.add(user)
+                db.flush()
+
+                existing = m.ThirdPartyAuth(
+                    user_id=user.id,
+                    provider=provider,
+                    openid=openid,
+                    union_id=unionid,
+                    token=access_token,
+                )
+                db.add(existing)
+
+        db.commit()
+
+        # 生成 JWT
+        token = auth.create_token(user.id, user.username, user.role)
+        return {
+            "token": token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "role": user.role,
+                "roles": [user.role],
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"OAuth 回调处理失败: {str(e)}")
+
+
+# ================= 第三方账号绑定/解绑 =================
+
+class BindThirdPartyReq(BaseModel):
+    provider: str
+    code: str
+    state: str = ""
+
+
+@app.post("/api/v1/auth/bind-thirdparty")
+async def bind_thirdparty(req: BindThirdPartyReq, db: Session = Depends(get_db),
+                          current_user: dict = Depends(get_current_user)):
+    """绑定第三方账号到当前用户"""
+    provider = req.provider
+    if provider not in ("wechat", "alipay"):
+        raise HTTPException(400, f"不支持的提供商: {provider}")
+
+    user = db.query(m.User).filter(m.User.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(404, "用户不存在")
+
+    try:
+        if provider == "wechat":
+            userinfo = _wechat_get_userinfo(req.code)
+            openid = userinfo["openid"]
+            unionid = userinfo.get("unionid")
+            access_token = userinfo["access_token"]
+        elif provider == "alipay":
+            userinfo = _alipay_get_userinfo(req.code)
+            openid = userinfo.get("userid", "")
+            unionid = None
+            access_token = None
+        else:
+            raise HTTPException(400, f"不支持的提供商: {provider}")
+
+        # 检查是否已被其他用户绑定
+        existing = db.query(m.ThirdPartyAuth).filter(
+            m.ThirdPartyAuth.provider == provider,
+            m.ThirdPartyAuth.openid == openid,
+        ).first()
+        if existing:
+            if existing.user_id == user.id:
+                return {"message": "已绑定"}
+            raise HTTPException(400, "该第三方账号已绑定其他用户")
+
+        # 更新用户字段
+        if provider == "wechat":
+            user.wechat_openid = openid
+        elif provider == "alipay":
+            user.alipay_user_id = openid
+
+        # 创建绑定记录
+        auth_record = m.ThirdPartyAuth(
+            user_id=user.id,
+            provider=provider,
+            openid=openid,
+            union_id=unionid,
+            token=access_token,
+        )
+        db.add(auth_record)
+        db.commit()
+
+        return {"message": f"已成功绑定{provider}账号"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"绑定失败: {str(e)}")
+
+
+@app.post("/api/v1/auth/unbind-thirdparty")
+async def unbind_thirdparty(provider: str, db: Session = Depends(get_db),
+                            current_user: dict = Depends(get_current_user)):
+    """解绑第三方账号"""
+    user = db.query(m.User).filter(m.User.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(404, "用户不存在")
+
+    auth_record = db.query(m.ThirdPartyAuth).filter(
+        m.ThirdPartyAuth.user_id == user.id,
+        m.ThirdPartyAuth.provider == provider,
+    ).first()
+
+    if not auth_record:
+        raise HTTPException(400, "未绑定该第三方账号")
+
+    # 清除用户字段
+    if provider == "wechat":
+        user.wechat_openid = None
+    elif provider == "alipay":
+        user.alipay_user_id = None
+    else:
+        raise HTTPException(400, f"不支持的提供商: {provider}")
+
+    db.delete(auth_record)
+    db.commit()
+
+    return {"message": f"已解绑{provider}账号"}
+
+
+@app.get("/api/v1/auth/thirdparty-list")
+async def get_thirdparty_list(db: Session = Depends(get_db),
+                              current_user: dict = Depends(get_current_user)):
+    """查询已绑定的第三方账号列表"""
+    records = db.query(m.ThirdPartyAuth).filter(
+        m.ThirdPartyAuth.user_id == current_user["id"]
+    ).all()
+    return {
+        "bindings": [
+            {
+                "provider": r.provider,
+                "openid": r.openid,
+                "union_id": r.union_id,
+                "bound_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in records
+        ]
+    }

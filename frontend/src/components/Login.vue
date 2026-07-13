@@ -11,6 +11,12 @@ const auth = useAuthStore()
 const username = ref('')
 const password = ref('')
 
+// 第三方登录：获取后端配置的前端域名，生成 OAuth 跳转链接
+const handleOAuthLogin = (provider) => {
+  const redirectPath = window.location.pathname + window.location.search
+  window.location.href = `/api/v1/auth/oauth/${provider}/authorize?redirect=${encodeURIComponent(redirectPath)}`
+}
+
 const doLogin = async () => {
   if (!username.value || !password.value) {
     showToast('请输入用户名和密码')
@@ -66,6 +72,22 @@ const doLogin = async () => {
       </div>
     </van-form>
 
+    <!-- 第三方登录 -->
+    <div class="oauth-section">
+      <div class="divider">
+        <span>其他登录方式</span>
+      </div>
+      <div class="oauth-buttons">
+        <van-button round plain type="success" class="oauth-btn" @click="handleOAuthLogin('wechat')">
+          <span class="oauth-icon">💬</span> 微信登录
+        </van-button>
+        <van-button round plain type="primary" class="oauth-btn" @click="handleOAuthLogin('alipay')">
+          <span class="oauth-icon">🔵</span> 支付宝登录
+        </van-button>
+      </div>
+      <p class="oauth-hint">第三方登录功能开发中，敬请期待</p>
+    </div>
+
     <div class="auth-footer">
       还没有账号？<router-link to="/register">立即注册</router-link>
     </div>
@@ -85,7 +107,17 @@ const doLogin = async () => {
 .auth-header p { font-size: 14px; color: #969799; margin: 0; }
 .auth-form { margin-bottom: 20px; }
 .auth-action { padding: 30px 16px 0; }
-.auth-footer { text-align: center; font-size: 14px; color: #646566; }
+.auth-footer { text-align: center; font-size: 14px; color: #646566; margin-top: 20px; }
 .auth-footer a { color: #1989fa; }
-.demo-hint { margin-top: 30px; text-align: center; font-size: 12px; color: #c8c9cc; }
+.oauth-hint { margin-top: 30px; text-align: center; font-size: 12px; color: #c8c9cc; }
+
+/* 第三方登录 */
+.oauth-section { margin: 20px 0; }
+.divider { display: flex; align-items: center; margin: 20px 0; color: #c8c9cc; font-size: 12px; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #ebedf0; }
+.divider span { padding: 0 12px; }
+.oauth-buttons { display: flex; gap: 12px; justify-content: center; }
+.oauth-btn { flex: 1; height: 44px; font-size: 14px; }
+.oauth-icon { margin-right: 4px; }
+.oauth-hint { text-align: center; font-size: 12px; color: #c8c9cc; margin-top: 8px; }
 </style>
