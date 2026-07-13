@@ -3,8 +3,10 @@ import { ref, onMounted } from 'vue'
 import { showToast, showSuccessToast, showConfirmDialog } from 'vant'
 import request from '../api/request.js'
 import { useAuthStore } from '../stores/auth'
+import { useRouter } from 'vue-router'
 
 const auth = useAuthStore()
+const router = useRouter()
 
 const pendingOrders = ref([])
 const isCreator = ref(false)
@@ -77,6 +79,10 @@ const formatTime = (ts) => {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
+const goApply = () => {
+  router.push('/creator?apply=1')
+}
+
 onMounted(() => {
   isCreator.value = auth.isCreator
   fetchOrders()
@@ -90,7 +96,7 @@ onMounted(() => {
     <!-- 非制作者提示 -->
     <div v-if="!isCreator" class="not-creator">
       <van-empty description="申请加入制作者，即可接单赚取报酬">
-        <van-button type="primary" round to="/creator">立即申请</van-button>
+        <van-button type="primary" round @click="goApply">立即申请</van-button>
       </van-empty>
     </div>
 

@@ -1,12 +1,13 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { showToast, showSuccessToast, showConfirmDialog } from 'vant'
 import request from '../api/request.js'
 import { useAuthStore } from '../stores/auth'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import DeliveryDialog from './DeliveryDialog.vue'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
 // 交付弹窗
@@ -257,9 +258,22 @@ const progressStep = (order) => {
 }
 
 onMounted(() => {
-  fetchApplicationStatus()
-  fetchOrders()
-  fetchWallet()
+  // 自动申请：来自众包大厅 ?apply=1 时，加载完成后自动弹协议
+  const autoApply = route.query.apply === '1'
+
+  const checkApply = async () => {
+    await fetchApplicationStatus()
+    fetchOrders()
+    fetchWallet()
+
+    if (autoApply && !hasApplied.value) {
+      // 模拟点击"立即申请"——弹协议
+      pendingApply.value = true
+      showAgreement.value = true
+    }
+  }
+
+  checkApply()
   // 每 60 秒刷新订单列表（倒计时更新）
   setInterval(fetchOrders, 60000)
 })
