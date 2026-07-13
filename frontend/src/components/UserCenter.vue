@@ -677,6 +677,36 @@ onMounted(() => {
           </div>
         </van-tab>
       </van-tabs>
+
+      <!-- 第三方账号绑定 -->
+      <div class="oauth-bind-section">
+        <div class="section-title">第三方账号绑定</div>
+        <van-cell-group inset>
+          <van-cell title="微信" is-link @click="handleOAuthBind('wechat')">
+            <template #label>
+              <span v-if="userInfo.wechat_openid" class="bind-status bound">已绑定</span>
+              <span v-else class="bind-status unbound">未绑定</span>
+            </template>
+            <template #right-icon v-if="userInfo.wechat_openid">
+              <van-button size="mini" type="danger" plain @click.stop="handleUnbind('wechat')">解绑</van-button>
+            </template>
+          </van-cell>
+          <van-cell title="支付宝" is-link @click="handleOAuthBind('alipay')">
+            <template #label>
+              <span v-if="userInfo.alipay_user_id" class="bind-status bound">已绑定</span>
+              <span v-else class="bind-status unbound">未绑定</span>
+            </template>
+            <template #right-icon v-if="userInfo.alipay_user_id">
+              <van-button size="mini" type="danger" plain @click.stop="handleUnbind('alipay')">解绑</van-button>
+            </template>
+          </van-cell>
+        </van-cell-group>
+      </div>
+
+      <!-- 退出登录 -->
+      <div class="logout-section">
+        <van-button type="danger" block round plain hairline @click="handleLogout">退出登录</van-button>
+      </div>
     </div>
 
     <!-- 充值弹窗 -->
@@ -741,36 +771,6 @@ onMounted(() => {
         <p class="form-tips">退款申请提交后需管理员审核，仅可退款一次</p>
       </div>
     </van-dialog>
-
-    <!-- 第三方账号绑定 -->
-    <div class="oauth-bind-section">
-      <div class="section-title">第三方账号绑定</div>
-      <van-cell-group inset>
-        <van-cell title="微信" is-link @click="handleOAuthBind('wechat')">
-          <template #label>
-            <span v-if="userInfo.wechat_openid" class="bind-status bound">已绑定</span>
-            <span v-else class="bind-status unbound">未绑定</span>
-          </template>
-          <template #right-icon v-if="userInfo.wechat_openid">
-            <van-button size="mini" type="danger" plain @click.stop="handleUnbind('wechat')">解绑</van-button>
-          </template>
-        </van-cell>
-        <van-cell title="支付宝" is-link @click="handleOAuthBind('alipay')">
-          <template #label>
-            <span v-if="userInfo.alipay_user_id" class="bind-status bound">已绑定</span>
-            <span v-else class="bind-status unbound">未绑定</span>
-          </template>
-          <template #right-icon v-if="userInfo.alipay_user_id">
-            <van-button size="mini" type="danger" plain @click.stop="handleUnbind('alipay')">解绑</van-button>
-          </template>
-        </van-cell>
-      </van-cell-group>
-    </div>
-
-    <!-- 退出登录 -->
-    <div class="logout-section">
-      <van-button type="danger" block round plain hairline @click="handleLogout">退出登录</van-button>
-    </div>
   </div>
 </template>
 
