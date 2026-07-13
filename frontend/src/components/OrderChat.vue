@@ -226,10 +226,10 @@ const loadHistory = async () => {
   try {
     const res = await request.get(`/orders/${orderId.value}/messages?offset=0&limit=100`)
     messages.value = res.data.messages || []
-    // 标记为已读
-    await markMessagesRead()
-    // 滚动到已读末尾/未读开头
+    // 先滚动到未读开头（此时还未标记已读）
     scrollToUnread()
+    // 再标记为已读
+    await markMessagesRead()
   } catch (e) {
     showToast('加载消息失败')
   } finally {
