@@ -24,6 +24,23 @@ watch(() => route.query.ref, (ref) => {
 const unreadCount = ref(0)
 const unreadOrders = ref([])
 
+// ─── 进行中的订单检查 ───
+const hasActiveOrders = ref(false)
+
+async function checkActiveOrders() {
+  try {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    const res = await fetch('/api/v1/orders/my/active-check', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (res.ok) {
+      const data = await res.json()
+      hasActiveOrders.value = data.has_active
+    }
+  } catch {}
+}
+
 // ─── 心跳 WebSocket ───
 let heartbeatWS = null
 let heartbeatTimer = null
@@ -47,6 +64,9 @@ function startHeartbeat() {
   if (unreadTimer) clearInterval(unreadTimer)
   unreadTimer = setInterval(pollUnreadCount, UNREAD_POLL_INTERVAL)
   pollUnreadCount()
+
+  // 检查进行中的订单
+  checkActiveOrders()
 }
 
 function connectHeartbeat(token) {
@@ -178,6 +198,7 @@ watch(() => auth.isLoggedIn, (loggedIn) => {
     if (heartbeatTimer) clearInterval(heartbeatTimer)
     if (unreadTimer) clearInterval(unreadTimer)
     unreadCount.value = 0
+    hasActiveOrders.value = false
   }
 })
 
@@ -186,14 +207,24 @@ const isAdmin = computed(() => auth.isAdmin)
 const isCreator = computed(() => auth.isCreator)
 
 // Tab 定义：根据角色动态生成
-const tabs = computed(() => [
-  { label: '模板商城', icon: 'home-o', path: '/' },
-  { label: '众包大厅', icon: 'friends-o', path: '/crowd' },
-  { label: '我的订单', icon: 'bill-o', path: '/my-orders' },
-  ...(isCreator.value ? [{ label: '制作者中心', icon: 'gem-o', path: '/creator' }] : []),
-  ...(isAdmin.value ? [{ label: '管理后台', icon: 'manager-o', path: '/admin' }] : []),
-  { label: '我的', icon: 'user-o', path: '/user' },
-])
+const tabs = computed(() => {
+  const result = [
+    { label: '模板商城', icon: 'home-o', path: '/' },
+    { label: '众包大厅', icon: 'friends-o', path: '/crowd' },
+  ]
+  // 我的订单：仅当有进行中的订单时显示
+  if (hasActiveOrders.value) {
+    result.push({ label: '我的订单', icon: 'bill-o', path: '/my-orders' })
+  }
+  if (isCreator.value) {
+    result.push({ label: '制作者中心', icon: 'gem-o', path: '/creator' })
+  }
+  if (isAdmin.value) {
+    result.push({ label: '管理后台', icon: 'manager-o', path: '/admin' })
+  }
+  result.push({ label: '我的', icon: 'user-o', path: '/user' })
+  return result
+})
 
 // Vant 4 Tabbar 需要 writable ref 配合 v-model
 const activeTab = ref(0)

@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
+from auth import get_current_user
 import models
 import payjs
 from commission import distribute_commission
@@ -16,6 +17,50 @@ from config import settings
 
 router = APIRouter(prefix="/api/v1", tags=["orders"])
 ASSETS_DIR = settings.ASSETS_DIR
+
+
+@router.get("/orders/my/active-check")
+async def check_active_orders(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """检查当前用户是否有进行中的定制订单（in_progress / delivered / awaiting_claim）"""
+    count = (
+        db.query(models.Order)
+        .filter(
+            models.Order.user_id == current_user["id"],
+            models.Order.order_type == "custom_service",
+            models.Order.status.in_(["in_progress", "delivered", "awaiting_claim"]),
+        )
+        .count()
+    )
+    return {"has_active": count > 0, "count": count}
+
+
+@router.get("/orders/my")
+async def get_my_custom_orders(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """获取当前用户的所有定制订单"""
+    orders = (
+        db.query(models.Order)
+        .filter(
+            models.Order.user_id == current_user["id"],
+            models.Order.order_type == "custom_service",
+        )
+        .order_by(models.Order.created_at.desc())
+        .all()
+    )
+    result = []
+    for o in orders:
+        template = db.query(models.Template).filter(models.Template.id == o.template_id).first()
+        creator = db.query(models.User).filter(models.User.id == o.creator_id).first() if o.creator_id else None
+        result.append({
+            "id": o.id,
+            "order_no": o.order_no,
+            "status": o.status,
+            "amount": o.amount,
+            "template_name": template.name if template else "未知",
+            "creator_name": creator.username if creator else None,
+            "custom_requirements": o.custom_requirements,
+            "created_at": str(o.created_at),
+        })
+    return result
 
 
 @router.post("/orders")
