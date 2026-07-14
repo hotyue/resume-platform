@@ -1,86 +1,104 @@
-"""Pydantic 请求体 / 响应模型"""
-from pydantic import BaseModel
+"""Pydantic request/response schemas"""
 from typing import Optional
+from pydantic import BaseModel
 
 
-# ================= 认证 =================
-
-class AuthLoginReq(BaseModel):
+class LoginReq(BaseModel):
     username: str
     password: str
-
-
-class AuthRegisterReq(BaseModel):
-    username: str
-    password: str
-    ref_code: Optional[str] = None
-
-
-# ================= 用户 =================
 
 class RegisterReq(BaseModel):
     username: str
-    ref_code: Optional[str] = None
-
-
-class WithdrawReq(BaseModel):
-    user_id: int
-    amount: float
-    payment_info: str
-
-
-# ================= 订单 =================
+    password: str
+    ref_user_id: Optional[int] = None
+    invite_code: Optional[str] = None
 
 class CreateOrderReq(BaseModel):
     template_id: int
-    ref_user_id: Optional[int] = None
     order_type: str = "download"
+    ref_user_id: Optional[int] = None
     custom_requirements: Optional[str] = None
-
 
 class MockPayReq(BaseModel):
     order_no: str
 
-
 class PayReq(BaseModel):
     order_no: str
-
 
 class TakeOrderReq(BaseModel):
     order_no: str
 
+class DeliverReq(BaseModel):
+    order_no: str
+    file_url: str
+    remark: str = ""
 
-# ================= 制作者 =================
-
-class CreatorApplyReq(BaseModel):
-    user_id: int
-    real_name: str
-    phone: str
-    wechat: str
-    specialty: Optional[str] = ""
-    portfolio_desc: Optional[str] = ""
-    experience: Optional[str] = ""
-
-
-class ReviewApplyReq(BaseModel):
-    application_id: int
-    status: str  # approved / rejected
-    remark: Optional[str] = ""
-
+class ReviewReq(BaseModel):
+    order_no: str
+    result: str
+    buyer_remark: str = ""
 
 class ReviewWithdrawReq(BaseModel):
     request_id: int
-    status: str  # approved / rejected
-    remark: Optional[str] = ""
+    status: str
+    remark: str = ""
+    transfer_proof: str = ""
 
+class ReviewApplicationReq(BaseModel):
+    request_id: int
+    status: str
+    remark: str = ""
 
-# ================= 管理员 =================
+class UpdateCommissionConfigReq(BaseModel):
+    level: int
+    rate: float
 
 class UpdateUserReq(BaseModel):
     role: Optional[str] = None
     wallet_balance: Optional[float] = None
 
+class CreatorAppReq(BaseModel):
+    real_name: str
+    phone: str
+    wechat: str
+    specialty: str = ""
+    portfolio_desc: str = ""
+    experience: str = ""
 
-class UpdateCommissionConfigReq(BaseModel):
-    level: int
-    rate: float
+class ResignCreatorReq(BaseModel):
+    force: bool = False
+
+class WithdrawReq(BaseModel):
+    amount: float
+    payment_info: str
+    account_type: str = "alipay"
+
+class UpdateProfileReq(BaseModel):
+    alipay_account: Optional[str] = None
+    wechat_account: Optional[str] = None
+
+class UpdatePasswordReq(BaseModel):
+    old_password: str
+    new_password: str
+
+class RechargeReq(BaseModel):
+    amount: float
+    method: str = "manual"
+
+class RefundReq(BaseModel):
+    order_no: str
+    reason: str = ""
+
+class ReviewRefundReq(BaseModel):
+    refund_id: int
+    status: str
+    remark: str = ""
+
+class UpdateSystemConfigReq(BaseModel):
+    key: str
+    value: float
+
+class BindThirdPartyReq(BaseModel):
+    provider: str
+    code: str
+    state: str = ""
