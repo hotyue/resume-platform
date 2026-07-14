@@ -189,6 +189,7 @@ const isCreator = computed(() => auth.isCreator)
 const tabs = computed(() => [
   { label: '模板商城', icon: 'home-o', path: '/' },
   { label: '众包大厅', icon: 'friends-o', path: '/crowd' },
+  { label: '我的订单', icon: 'bill-o', path: '/my-orders' },
   ...(isCreator.value ? [{ label: '制作者中心', icon: 'gem-o', path: '/creator' }] : []),
   ...(isAdmin.value ? [{ label: '管理后台', icon: 'manager-o', path: '/admin' }] : []),
   { label: '我的', icon: 'user-o', path: '/user' },
