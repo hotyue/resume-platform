@@ -153,7 +153,10 @@ const doSearch = () => {
   loadTemplates(activeCategory.value)
 }
 
-const getImageUrl = (relPath) => `/static/${encodeURI(relPath.replace(/\\/g, '/'))}`
+const getImageUrl = (relPath) => {
+  const path = relPath.replace(/\\/g, '/')
+  return path.startsWith('/static/') ? path : `/static/${encodeURI(path)}`
+}
 
 // ================= 图片全屏预览 =================
 const previewImage = (relPath) => {

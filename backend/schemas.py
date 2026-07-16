@@ -50,6 +50,12 @@ class TakeOrderReq(BaseModel):
     order_no: str
 
 
+class ReviewOrderReq(BaseModel):
+    order_no: str
+    result: str  # accepted / rejected
+    buyer_remark: Optional[str] = None
+
+
 # ================= 制作者 =================
 
 class CreatorApplyReq(BaseModel):

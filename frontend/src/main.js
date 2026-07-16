@@ -11,6 +11,7 @@ import {
   Radio, RadioGroup, Checkbox,
   DropdownMenu, DropdownItem,
   Progress,
+  Pagination,
 } from 'vant'
 import 'vant/lib/index.css'
 
@@ -22,5 +23,5 @@ app.use(ConfigProvider).use(Tabbar).use(TabbarItem).use(NavBar).use(Grid).use(Gr
 app.use(VanImage).use(Button).use(Toast).use(PullRefresh).use(Popup).use(Search).use(Tag).use(Cell).use(CellGroup)
 app.use(Field).use(Dialog).use(Tab).use(Tabs).use(Empty)
 app.use(Form).use(Icon).use(Loading).use(ActionSheet).use(Radio).use(RadioGroup).use(Checkbox)
-app.use(DropdownMenu).use(DropdownItem).use(Progress).use(Badge)
+app.use(DropdownMenu).use(DropdownItem).use(Progress).use(Badge).use(Pagination)
 app.mount('#app')

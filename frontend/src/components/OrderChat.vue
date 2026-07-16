@@ -128,7 +128,10 @@ import request from '../api/request.js'
 const route = useRoute()
 const router = useRouter()
 
-const orderId = computed(() => parseInt(route.params.order_id))
+const orderId = computed(() => {
+  const raw = route.params.order_id
+  return raw ? parseInt(raw) : NaN
+})
 const orderNo = ref('')
 const myUserId = ref(null)
 const messages = ref([])
@@ -140,13 +143,20 @@ const imageInputRef = ref(null)
 const fileInputRef = ref(null)
 const previewImageUrls = ref([])
 const pendingAttachments = ref([])
+const reconnectAttempts = ref(0)
+const MAX_RECONNECT = 5
+const unmounted = ref(false)
 
 // WebSocket URL
 const wsUrl = computed(() => {
+  const id = orderId.value
+  if (isNaN(id) || id <= 0) {
+    return null
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
   const token = localStorage.getItem('token')
-  return `${protocol}//${host}/ws/orders/${orderId.value}/chat?token=${token}`
+  return `${protocol}//${host}/ws/orders/${id}/chat?token=${token}`
 })
 
 // 获取完整 URL
@@ -257,13 +267,24 @@ const loadMyUserId = () => {
 
 // 连接 WebSocket
 const connectWS = () => {
+  // 无效订单号，不连接
+  if (isNaN(orderId.value) || orderId.value <= 0) {
+    return
+  }
+
   if (ws.value) {
     ws.value.close()
   }
 
-  ws.value = new WebSocket(wsUrl.value)
+  const url = wsUrl.value
+  if (!url) {
+    return
+  }
+
+  ws.value = new WebSocket(url)
 
   ws.value.onopen = () => {
+    reconnectAttempts.value = 0
     console.log('WebSocket connected')
   }
 
@@ -291,8 +312,21 @@ const connectWS = () => {
   }
 
   ws.value.onclose = () => {
-    console.log('WebSocket disconnected, reconnecting...')
-    setTimeout(connectWS, 3000)
+    console.log('WebSocket disconnected')
+    // 组件已卸载，不重连
+    if (unmounted.value) {
+      return
+    }
+    // 达到最大重连次数，不再重连
+    if (reconnectAttempts.value >= MAX_RECONNECT) {
+      console.warn(`WebSocket max reconnect attempts (${MAX_RECONNECT}) reached`)
+      return
+    }
+    // 指数退避重连
+    const delay = Math.min(3000 * Math.pow(1.5, reconnectAttempts.value), 15000)
+    reconnectAttempts.value++
+    console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts.value}/${MAX_RECONNECT})...`)
+    setTimeout(connectWS, delay)
   }
 
   ws.value.onerror = (err) => {
@@ -418,14 +452,27 @@ const goBack = () => {
   router.back()
 }
 
-onMounted(() => {
-  loadMyUserId()
+// 监听订单 ID 变化，仅在有效时才加载数据
+watch(orderId, (newId) => {
+  if (isNaN(newId) || newId <= 0) {
+    return
+  }
   loadOrderInfo()
   loadHistory()
   connectWS()
+}, { immediate: true })
+
+onMounted(() => {
+  loadMyUserId()
+  // 首次加载时，如果订单号无效则返回上一页
+  if (isNaN(orderId.value) || orderId.value <= 0) {
+    showToast('无效的订单号')
+    setTimeout(() => router.back(), 500)
+  }
 })
 
 onUnmounted(() => {
+  unmounted.value = true
   if (ws.value) {
     ws.value.close()
   }

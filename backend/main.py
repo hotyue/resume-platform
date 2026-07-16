@@ -30,7 +30,11 @@ import auth
 # ---------------------------------------------------------------------------
 m.Base.metadata.create_all(bind=engine)
 
-ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
+# Assets directory — works in both Docker (/app/assets) and local dev (../assets)
+_ASSETS_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+_ASSETS_PARENT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets"))
+ASSETS_DIR = _ASSETS_LOCAL if os.path.isdir(_ASSETS_LOCAL) else _ASSETS_PARENT
+os.makedirs(ASSETS_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -122,7 +126,7 @@ get_current_user = auth.get_current_user
 # Static files
 # ---------------------------------------------------------------------------
 
-app.mount("/static", StaticFiles(directory="/root/assets"), name="static")
+app.mount("/static", StaticFiles(directory=ASSETS_DIR), name="static")
 
 
 # ---------------------------------------------------------------------------
@@ -161,3 +165,14 @@ app.include_router(ws_router)
 
 from routers.ws import ws_http as ws_http_router
 app.include_router(ws_http_router)
+
+# 公开配置（无需认证 — 前端展示用）
+@app.get("/api/v1/config/public")
+async def get_public_config(db: Session = Depends(get_db)):
+    """返回前端需要展示的公开配置项"""
+    from routers.admin.config import load_all_configs
+    all_configs = load_all_configs(db)
+    return {
+        "creator_rate": all_configs.get("creator_rate", 0.30),
+        "deposit_amount": all_configs.get("deposit_amount", 20.0),
+    }
